@@ -24,6 +24,3 @@ HybridStackPPI is a sequence-only protein-protein interaction (PPI) pipeline tha
 - Pairs are canonicalized (`protein1`/`protein2` sorted) and duplicates are dropped before splitting/feature building. Conflicting duplicate labels are logged and the first occurrence is kept.
 - Use protein-level or cluster-level CV (`n_splits>1`) instead of random train/test splits for reporting.
 - If you previously created caches with older code, delete `cache/*` to regenerate with the dedup logic.
-
-## Citation
-If you use this code or datasets, please cite the HybridStackPPI work (add your preferred citation here).
