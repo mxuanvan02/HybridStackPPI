@@ -12,6 +12,8 @@ catboost_info/
 .vscode/
 .idea/
 
-# Logs & plots (keep dataset TSV/CSV)
-*.png
+# Notebooks (keep code clean)
+*.ipynb
+
+# Logs & plots
 *.log

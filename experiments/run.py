@@ -18,6 +18,7 @@ from experiments.metrics import (
 )
 from experiments.data_utils import (
     load_data,
+    canonicalize_pairs,
     create_feature_matrix,
     get_cache_filename,
     save_feature_matrix_h5,
@@ -151,8 +152,16 @@ def run_experiment(
     """
     logger = PipelineLogger()
 
+    def _load_and_clean(fasta_file: str, pairs_file: str, dataset_name: str):
+        seqs, pairs = load_data(fasta_file, pairs_file)
+        pairs = canonicalize_pairs(pairs, dataset_name=dataset_name, logger=logger)
+        return seqs, pairs
+
     if test_fasta_path and test_pairs_path:
         logger.header(f"EXPERIMENT: INDEPENDENT TEST (Strategy: {pairing_strategy})")
+
+        train_sequences, train_pairs_df = _load_and_clean(fasta_path, pairs_path, dataset_name="Train")
+        test_sequences, test_pairs_df = _load_and_clean(test_fasta_path, test_pairs_path, dataset_name="Test")
 
         train_cache_path = get_cache_filename(
             pairs_path, pairing_strategy, esm_model_name, cache_version=cache_version
@@ -161,38 +170,36 @@ def run_experiment(
             test_pairs_path, pairing_strategy, esm_model_name, cache_version=cache_version
         )
 
-        if os.path.exists(train_cache_path):
-            logger.phase("Loading TRAIN Features from Cache")
-            X_train, y_train = load_feature_matrix_h5(train_cache_path)
-        else:
-            logger.phase("TRAIN Cache NOT FOUND. Running Extraction...")
-            embedding_computer = EmbeddingComputer(model_name=esm_model_name)
-            feature_engine = FeatureEngine(h5_cache_path, embedding_computer)
+        feature_engine = None
+        single_feature_names = None
 
-            sequences, pairs_df = load_data(fasta_path, pairs_path)
-            protein_features = feature_engine.extract_all_features(sequences)
-            single_feature_names = feature_engine.get_feature_names()
-
-            X_train, y_train = create_feature_matrix(pairs_df, protein_features, single_feature_names, pairing_strategy)
-            save_feature_matrix_h5(X_train, y_train, train_cache_path)
-
-        if os.path.exists(test_cache_path):
-            logger.phase("Loading TEST Features from Cache")
-            X_test, y_test = load_feature_matrix_h5(test_cache_path)
-        else:
-            logger.phase("TEST Cache NOT FOUND. Running Extraction...")
-            if "feature_engine" not in locals():
+        def _ensure_feature_engine():
+            nonlocal feature_engine, single_feature_names
+            if feature_engine is None:
                 embedding_computer = EmbeddingComputer(model_name=esm_model_name)
                 feature_engine = FeatureEngine(h5_cache_path, embedding_computer)
+                single_feature_names = feature_engine.get_feature_names()
 
-            sequences_test, pairs_df_test = load_data(test_fasta_path, test_pairs_path)
-            protein_features_test = feature_engine.extract_all_features(sequences_test)
-            single_feature_names = feature_engine.get_feature_names()
+        def _load_or_build(cache_path, sequences, pairs_df, split_name: str):
+            if os.path.exists(cache_path):
+                logger.phase(f"Loading {split_name} Features from Cache")
+                X_df_cached, y_s_cached = load_feature_matrix_h5(cache_path)
+                if len(X_df_cached) == len(pairs_df):
+                    return X_df_cached, y_s_cached
+                logger.warning(
+                    f"{split_name} cache rows ({len(X_df_cached)}) do not match cleaned pairs ({len(pairs_df)}). "
+                    "Recomputing to avoid duplicated pairs."
+                )
 
-            X_test, y_test = create_feature_matrix(
-                pairs_df_test, protein_features_test, single_feature_names, pairing_strategy
-            )
-            save_feature_matrix_h5(X_test, y_test, test_cache_path)
+            logger.phase(f"{split_name} Cache NOT FOUND or stale. Running Extraction...")
+            _ensure_feature_engine()
+            protein_features = feature_engine.extract_all_features(sequences)
+            X_df, y_s = create_feature_matrix(pairs_df, protein_features, single_feature_names, pairing_strategy)
+            save_feature_matrix_h5(X_df, y_s, cache_path)
+            return X_df, y_s
+
+        X_train, y_train = _load_or_build(train_cache_path, train_sequences, train_pairs_df, "TRAIN")
+        X_test, y_test = _load_or_build(test_cache_path, test_sequences, test_pairs_df, "TEST")
 
         logger.phase("Training Model")
         model_pipeline = model_factory(n_jobs=n_jobs)
@@ -217,24 +224,39 @@ def run_experiment(
             logger.warning(f"Could not plot ROC/PR for independent test: {exc}")
         return metrics
 
+    sequences, pairs_df = _load_and_clean(fasta_path, pairs_path, dataset_name="Train")
     cache_path = get_cache_filename(pairs_path, pairing_strategy, esm_model_name, cache_version=cache_version)
 
+    feature_engine = None
+    single_feature_names = None
+
+    def _ensure_feature_engine():
+        nonlocal feature_engine, single_feature_names
+        if feature_engine is None:
+            embedding_computer = EmbeddingComputer(model_name=esm_model_name)
+            feature_engine = FeatureEngine(h5_cache_path, embedding_computer)
+            single_feature_names = feature_engine.get_feature_names()
+
+    need_recompute = True
     if os.path.exists(cache_path):
         logger.phase("Loading Features from Cache")
         X_df, y_s = load_feature_matrix_h5(cache_path)
-    else:
-        logger.phase("Cache NOT FOUND. Running Full Feature Extraction")
-        embedding_computer = EmbeddingComputer(model_name=esm_model_name)
-        feature_engine = FeatureEngine(h5_cache_path, embedding_computer)
+        if len(X_df) == len(pairs_df):
+            need_recompute = False
+        else:
+            logger.warning(
+                f"Cache rows ({len(X_df)}) do not match cleaned pairs ({len(pairs_df)}). "
+                "Recomputing to avoid duplicated pairs."
+            )
 
-        sequences, pairs_df = load_data(fasta_path, pairs_path)
+    if need_recompute:
+        logger.phase("Cache NOT FOUND or stale. Running Full Feature Extraction")
+        _ensure_feature_engine()
         protein_features = feature_engine.extract_all_features(sequences)
-        single_feature_names = feature_engine.get_feature_names()
-
         X_df, y_s = create_feature_matrix(pairs_df, protein_features, single_feature_names, pairing_strategy)
         save_feature_matrix_h5(X_df, y_s, cache_path)
 
-    _, pairs_df_for_split = load_data(fasta_path, pairs_path)
+    pairs_df_for_split = pairs_df
     cluster_mapping = cluster_map
     if cluster_mapping is None and cluster_path:
         try:
@@ -519,3 +541,19 @@ def run_estackppi_esm_only_ablation(
     print(results_df[cols_to_show].to_string(float_format="%.4f"))
 
     return results_df
+
+
+def create_stacking_pipeline_for_notebook(
+    pairing_strategy: str,
+    n_jobs: int = -1,
+    h5_cache_path: str = "cache/esm2_embeddings.h5",
+    esm_model_name: str = "facebook/esm2_t33_650M_UR50D",
+):
+    """
+    Convenience helper: build stacking pipeline with columns derived from FeatureEngine.
+    Mirrors the notebook setup to avoid duplicated boilerplate.
+    """
+    embedding_computer = EmbeddingComputer(model_name=esm_model_name)
+    feature_engine = FeatureEngine(h5_cache_path=h5_cache_path, embedding_computer=embedding_computer)
+    interp_cols, embed_cols = define_stacking_columns(feature_engine, pairing_strategy=pairing_strategy)
+    return create_stacking_pipeline(interp_cols=interp_cols, embed_cols=embed_cols, n_jobs=n_jobs, use_selector=True)
