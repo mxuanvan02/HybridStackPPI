@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+.DS_Store
+cache/
+catboost_info/
+*.h5
+*.lock
+
+# VSCode / IDE
+.vscode/
+.idea/
+
+# Logs & plots (keep dataset TSV/CSV)
+*.png
+*.log
