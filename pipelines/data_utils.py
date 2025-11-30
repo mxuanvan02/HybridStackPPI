@@ -366,6 +366,7 @@ def get_cluster_based_splits(pairs_df: pd.DataFrame, cluster_map: Dict[str, str]
 
 __all__ = [
     "load_data",
+    "canonicalize_pairs",
     "create_feature_matrix",
     "get_cache_filename",
     "save_feature_matrix_h5",
