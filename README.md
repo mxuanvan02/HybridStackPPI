@@ -68,20 +68,3 @@ HybridStackPPI/
 ├── requirements.txt
 └── README.md
 ```
-
-## 📜 Citation
-
-If you use this code, please cite our paper:
-
-```bibtex
-@article{mai2025hybridstack,
-  title={A Biologically-Informed Hybrid Stacking Framework for Protein-Protein Interaction Prediction},
-  author={Mai, Xuan Van and et al.},
-  journal={Computer Science and Information Systems},
-  year={2025}
-}
-```
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
