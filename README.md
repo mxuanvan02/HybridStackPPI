@@ -56,8 +56,6 @@ Due to GitHub file size limits, the processed `.tsv` files might not be included
 
 The model automatically fetches motif definitions from the ELM database (http://elm.eu.org/elms/elms_index.tsv).
 
-> **Note:** An active internet connection is required for the first run to download and cache this database to `data/resources/`.
-
 ## 📊 Reproducing Results
 
 To reproduce the benchmark results reported in the paper (Table 3 & Table 4):
