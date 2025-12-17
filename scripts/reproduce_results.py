@@ -99,6 +99,11 @@ def main():
     # Set random seed FIRST for reproducibility
     set_seed(args.seed)
     
+    # Ensure cache directory exists before any file operations
+    cache_dir = os.path.dirname(args.h5_cache)
+    if cache_dir:  # Only create if there's a directory component
+        os.makedirs(cache_dir, exist_ok=True)
+    
     print("=" * 70)
     print("HybridStack-PPI: Reproducing Paper Results")
     print("=" * 70)

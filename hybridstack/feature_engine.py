@@ -375,16 +375,21 @@ class FeatureEngine:
             return np.array([0] * len(self.motifs), dtype=np.float32), np.zeros(self.embedding_dim, dtype=np.float32)
 
         for pattern in self.motifs.values():
-            match = pattern.search(sequence)
-            if match:
+            # Use finditer() to capture ALL occurrences of the motif, not just the first one.
+            # This is biologically important as proteins can have multiple motifs of the same type
+            # (e.g., multiple phosphorylation sites or SH2 binding sites).
+            matches = list(pattern.finditer(sequence))
+            if matches:
                 motif_binary_vector.append(1)
-                start, end = match.span()
-                start = min(start, embedding_matrix.shape[0] - 1)
-                end = min(end, embedding_matrix.shape[0])
-                if start < end:
-                    motif_embs = embedding_matrix[start:end]
-                    if motif_embs.shape[0] > 0:
-                        local_embedding_vectors.append(motif_embs.max(axis=0))
+                # Collect embeddings from ALL matched regions, then apply max pooling
+                for match in matches:
+                    start, end = match.span()
+                    start = min(start, embedding_matrix.shape[0] - 1)
+                    end = min(end, embedding_matrix.shape[0])
+                    if start < end:
+                        motif_embs = embedding_matrix[start:end]
+                        if motif_embs.shape[0] > 0:
+                            local_embedding_vectors.append(motif_embs.max(axis=0))
             else:
                 motif_binary_vector.append(0)
 

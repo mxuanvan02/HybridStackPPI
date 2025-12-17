@@ -180,7 +180,11 @@ class CumulativeFeatureSelector(BaseEstimator, TransformerMixin):
                 stage2_importances = all_importances.loc[X_stage2.columns]
                 feature_order = stage2_importances.sort_values(ascending=False).index.tolist()
             else:
-                feature_order = X_stage2.columns.tolist()
+                # When importance is not available, sort by variance to ensure the greedy
+                # correlation filter keeps the most representative features first.
+                # Features with higher variance tend to be more informative.
+                feature_variances = X_stage2.var()
+                feature_order = feature_variances.sort_values(ascending=False).index.tolist()
 
             # Greedy selection: keep feature if max correlation with selected < threshold
             selected_features = []
