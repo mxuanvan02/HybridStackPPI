@@ -84,20 +84,31 @@ python scripts/predict.py \
 
 ```
 HybridStackPPI/
-├── hybridstack/          # Core Python package
+├── hybridstack/              # Core Python package
 │   ├── __init__.py
-│   ├── feature_engine.py # Feature extraction (ESM-2 + Bio-priors)
-│   ├── builders.py       # Model pipeline builders
-│   ├── selectors.py      # Feature selection logic
-│   ├── metrics.py        # Evaluation metrics
-│   └── data_utils.py     # Data loading utilities
-├── scripts/              # Experiments & Utility scripts
-│   ├── run.py            # Main experiment runner
-│   ├── predict.py        # Inference script
-│   └── reproduce_results.py
-├── data/                 # Processed datasets (Human/Yeast)
-├── models/               # Saved model weights
-├── docs/                 # Documentation & Images
+│   ├── feature_engine.py     # Feature extraction (ESM-2 + ELM motifs)
+│   ├── builders.py           # Model pipeline builders
+│   ├── selectors.py          # Feature selection logic
+│   ├── metrics.py            # Evaluation metrics & visualization
+│   ├── data_utils.py         # Data loading & preprocessing
+│   └── logger.py             # Logging utilities
+├── scripts/                  # Experiments & Utility scripts
+│   ├── run.py                # Main experiment runner
+│   ├── predict.py            # Inference script
+│   ├── reproduce_results.py  # Reproduce paper results
+│   ├── run_5fold_cv_viz.py   # Cross-validation visualization
+│   ├── report_generator.py   # Generate experiment reports
+│   ├── analyze_meta_learner.py
+│   └── exp_*.py              # Ablation experiments
+├── utils/                    # Shared utilities
+│   ├── artifact_manager.py   # Experiment artifact management
+│   └── logger.py             # Advanced logging
+├── data/                     # Datasets
+│   └── BioGrid/              # Human & Yeast PPI datasets
+├── cache/                    # ESM-2 embedding cache (HDF5)
+├── experiments/              # Experiment outputs & results
+├── docs/                     # Documentation & figures
+├── run_pipeline.ipynb        # Interactive Jupyter notebook
 └── requirements.txt
 ```
 
