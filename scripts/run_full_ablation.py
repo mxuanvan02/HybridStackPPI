@@ -23,20 +23,16 @@ def main():
     datasets = []
     if args.dataset in ["yeast", "both"]:
         datasets.append({
-            "name": "Yeast DIP",
-            "fasta": str(PROJECT_ROOT / "data/data/yeast/sequences.fasta"),
-            "pairs": str(PROJECT_ROOT / "data/data/yeast/pairs.tsv")
+            "name": "Yeast BioGrid",
+            "fasta": str(PROJECT_ROOT / "data/BioGrid/Yeast/yeast_dict.fasta"),
+            "pairs": str(PROJECT_ROOT / "data/BioGrid/Yeast/yeast_pairs.tsv")
         })
     if args.dataset in ["human", "both"]:
-        # Assuming similar path for human if it exists
-        human_fasta = PROJECT_ROOT / "data/data/human/sequences.fasta"
-        human_pairs = PROJECT_ROOT / "data/data/human/pairs.tsv"
-        if human_fasta.exists():
-            datasets.append({
-                "name": "Human Biogrid",
-                "fasta": str(human_fasta),
-                "pairs": str(human_pairs)
-            })
+        datasets.append({
+            "name": "Human BioGrid",
+            "fasta": str(PROJECT_ROOT / "data/BioGrid/Human/human_dict.fasta"),
+            "pairs": str(PROJECT_ROOT / "data/BioGrid/Human/human_pairs.tsv")
+        })
 
     for ds in datasets:
         print(f"\n" + "#" * 100)
