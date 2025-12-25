@@ -12,7 +12,7 @@ from scripts.run import run_ablation_study
 
 def main():
     parser = argparse.ArgumentParser(description="Full HybridStack-PPI Ablation Study")
-    parser.add_argument("--dataset", choices=["human", "yeast", "both"], default="yeast")
+    parser.add_argument("--dataset", choices=["human", "yeast", "both"], default="both")
     parser.add_argument("--n-splits", type=int, default=5)
     parser.add_argument("--n-jobs", type=int, default=1)
     parser.add_argument("--esm-model", default="facebook/esm2_t33_650M_UR50D")

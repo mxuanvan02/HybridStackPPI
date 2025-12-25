@@ -529,6 +529,30 @@ def run_ablation_study(
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
+    logger.phase("Running Ablation 6: Full Hybrid Features (No Selection, Stacking)")
+    # Hybrid model without selection
+    model_factory_6 = lambda n_jobs=-1: create_stacking_pipeline(
+        interp_cols_concat, embed_cols_concat, n_jobs, use_selector=False
+    )
+    res6 = run_experiment(
+        fasta_path,
+        pairs_path,
+        h5_cache_path,
+        model_factory_6,
+        n_splits=n_splits,
+        n_jobs=n_jobs,
+        esm_model_name=esm_model_name,
+        pairing_strategy="concat",
+    )
+    res6["Model"] = "6. Full Hybrid Features (No Selection, Stacking)"
+    all_results.append(res6)
+
+    logger.info("Cleaning up memory after Ablation 6...")
+    del model_factory_6, res6
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
     logger.header("📊 ABLATION STUDY FINAL RESULTS 📊")
     results_df = pd.DataFrame(all_results)
     results_df = results_df.set_index("Model")
