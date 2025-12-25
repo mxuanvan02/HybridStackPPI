@@ -14,7 +14,7 @@ def main():
     parser = argparse.ArgumentParser(description="Full HybridStack-PPI Ablation Study")
     parser.add_argument("--dataset", choices=["human", "yeast", "both"], default="yeast")
     parser.add_argument("--n-splits", type=int, default=5)
-    parser.add_argument("--n-jobs", type=int, default=4)
+    parser.add_argument("--n-jobs", type=int, default=1)
     parser.add_argument("--esm-model", default="facebook/esm2_t33_650M_UR50D")
     parser.add_argument("--h5-cache", default=str(PROJECT_ROOT / "cache/esm2_embeddings.h5"))
     

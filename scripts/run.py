@@ -336,6 +336,13 @@ def run_experiment(
             metrics = display_full_metrics(y_val_fold, y_pred_val, y_proba_val, title=f"Fold {fold_idx + 1}")
             fold_metrics_list.append(metrics)
 
+            # Cleanup immediately after each fold to prevent RAM bloat
+            del X_train_fold, X_val_fold, y_train_fold, y_val_fold, model_pipeline
+            import gc
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
         # Print standard CV summary
         print_paper_style_results(fold_metrics_list)
         
