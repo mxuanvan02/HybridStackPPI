@@ -34,10 +34,13 @@ from hybridstack.data_utils import (
 )
 from hybridstack.builders import (
     create_embed_only_pipeline,
+    create_embed_only_stacking_pipeline,
     create_esm_lgbm_raw_pipeline,
     create_esm_lgbm_selector_pipeline,
+    create_esm_only_stacking_pipeline,
     create_esm_lr_pipeline,
     create_interp_only_pipeline,
+    create_interp_only_stacking_pipeline,
     create_stacking_pipeline,
     define_stacking_columns,
 )
@@ -404,8 +407,8 @@ def run_ablation_study(
         logger.warning(f"Không thể khởi tạo engine, có thể lỗi API. Lỗi: {exc}")
         return
 
-    logger.phase("Running Ablation 1: Interpretable-Only Model")
-    model_factory_1 = lambda n_jobs=-1: create_interp_only_pipeline(  # noqa: E731
+    logger.phase("Running Ablation 1: Interpretable-Only Model (Stacking)")
+    model_factory_1 = lambda n_jobs=-1: create_interp_only_stacking_pipeline(
         interp_cols_concat, n_jobs, use_selector=True
     )
     res1 = run_experiment(
@@ -418,7 +421,7 @@ def run_ablation_study(
         esm_model_name=esm_model_name,
         pairing_strategy="concat",
     )
-    res1["Model"] = "1. Interp-Only"
+    res1["Model"] = "1. Interp-Only (Stacking)"
     all_results.append(res1)
 
     logger.info("Cleaning up memory after Ablation 1...")
@@ -427,8 +430,8 @@ def run_ablation_study(
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    logger.phase("Running Ablation 2: Embedding-Only Model")
-    model_factory_2 = lambda n_jobs=-1: create_embed_only_pipeline(embed_cols_concat, n_jobs, use_selector=True)
+    logger.phase("Running Ablation 2: Embedding-Only Model (Stacking)")
+    model_factory_2 = lambda n_jobs=-1: create_embed_only_stacking_pipeline(embed_cols_concat, n_jobs, use_selector=True)
     res2 = run_experiment(
         fasta_path,
         pairs_path,
@@ -439,7 +442,7 @@ def run_ablation_study(
         esm_model_name=esm_model_name,
         pairing_strategy="concat",
     )
-    res2["Model"] = "2. Embed-Only"
+    res2["Model"] = "2. Embed-Only (Stacking)"
     all_results.append(res2)
 
     logger.info("Cleaning up memory after Ablation 2...")
@@ -448,8 +451,8 @@ def run_ablation_study(
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    logger.phase("Running Ablation 3: Interpretable-Only (No Selector)")
-    model_factory_3 = lambda n_jobs=-1: create_interp_only_pipeline(  # noqa: E731
+    logger.phase("Running Ablation 3: Interpretable-Only (No Selector, Stacking)")
+    model_factory_3 = lambda n_jobs=-1: create_interp_only_stacking_pipeline(
         interp_cols_concat, n_jobs, use_selector=False
     )
     res3 = run_experiment(
@@ -462,7 +465,7 @@ def run_ablation_study(
         esm_model_name=esm_model_name,
         pairing_strategy="concat",
     )
-    res3["Model"] = "3. Interp-Only (No Selector)"
+    res3["Model"] = "3. Interp-Only (No Selector, Stacking)"
     all_results.append(res3)
 
     logger.info("Cleaning up memory after Ablation 3...")
@@ -471,8 +474,8 @@ def run_ablation_study(
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    logger.phase("Running Ablation 4: Embedding-Only (No Selector)")
-    model_factory_4 = lambda n_jobs=-1: create_embed_only_pipeline(  # noqa: E731
+    logger.phase("Running Ablation 4: Embedding-Only (No Selector, Stacking)")
+    model_factory_4 = lambda n_jobs=-1: create_embed_only_stacking_pipeline(
         embed_cols_concat, n_jobs, use_selector=False
     )
     res4 = run_experiment(
@@ -485,11 +488,36 @@ def run_ablation_study(
         esm_model_name=esm_model_name,
         pairing_strategy="concat",
     )
-    res4["Model"] = "4. Embed-Only (No Selector)"
+    res4["Model"] = "4. Embed-Only (No Selector, Stacking)"
     all_results.append(res4)
 
     logger.info("Cleaning up memory after Ablation 4...")
     del model_factory_4, res4
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    logger.phase("Running Ablation 5: ESM2-Global-Only Stacking (No Selection)")
+    # Filter only global columns (exclude motif-local embeddings)
+    esm2_global_cols = [c for c in embed_cols_concat if "Global_ESM" in c]
+    model_factory_5 = lambda n_jobs=-1: create_esm_only_stacking_pipeline(
+        esm2_global_cols, n_jobs, use_selector=False
+    )
+    res5 = run_experiment(
+        fasta_path,
+        pairs_path,
+        h5_cache_path,
+        model_factory_5,
+        n_splits=n_splits,
+        n_jobs=n_jobs,
+        esm_model_name=esm_model_name,
+        pairing_strategy="concat",
+    )
+    res5["Model"] = "5. ESM2-Global-Only Stacking (No Selection)"
+    all_results.append(res5)
+
+    logger.info("Cleaning up memory after Ablation 5...")
+    del model_factory_5, res5
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()

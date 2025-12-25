@@ -11,6 +11,72 @@ from hybridstack.feature_engine import FeatureEngine
 from hybridstack.selectors import CumulativeFeatureSelector
 
 
+def create_esm_only_stacking_pipeline(embed_cols: List[str], n_jobs: int = -1, use_selector: bool = False) -> StackingClassifier:
+    """
+    Create a stacking pipeline using ONLY ESM2 global features.
+    Architecture: 2xLGBM (different seeds) + LR Meta.
+    """
+    # Preprocessor: Scaler only (no selector as requested)
+    embed_steps = [("scaler", StandardScaler())]
+    if use_selector:
+        embed_steps.append(
+            (
+                "selector",
+                CumulativeFeatureSelector(
+                    importance_quantile=0.90, corr_threshold=0.98, variance_threshold=0.0, verbose=True
+                ),
+            )
+        )
+    embed_preprocessor = Pipeline(embed_steps)
+
+    try:
+        embed_preprocessor.set_output(transform="pandas")
+    except Exception:
+        pass
+
+    common_lgbm_params = {
+        "n_estimators": 500,
+        "learning_rate": 0.05,
+        "num_leaves": 20,
+        "max_depth": 10,
+        "reg_alpha": 0.1,
+        "reg_lambda": 0.1,
+        "random_state": 42,
+        "n_jobs": n_jobs,
+        "verbose": -1,
+        "class_weight": "balanced",
+    }
+    
+    # 2 variants of LGBM for stacking diversity
+    lgbm_p1 = dict(common_lgbm_params)
+    lgbm_p2 = dict(common_lgbm_params)
+    lgbm_p2["random_state"] = 123
+
+    est1 = Pipeline(
+        [
+            ("preprocessor", ColumnTransformer([("embed_transformer", embed_preprocessor, embed_cols)], remainder="drop", n_jobs=n_jobs)),
+            ("model", LGBMClassifier(**lgbm_p1)),
+        ]
+    )
+
+    est2 = Pipeline(
+        [
+            ("preprocessor", ColumnTransformer([("embed_transformer", embed_preprocessor, embed_cols)], remainder="drop", n_jobs=n_jobs)),
+            ("model", LGBMClassifier(**lgbm_p2)),
+        ]
+    )
+
+    stacking_model = StackingClassifier(
+        estimators=[("esm_v1", est1), ("esm_v2", est2)],
+        final_estimator=LogisticRegression(random_state=42, class_weight="balanced"),
+        cv=3,
+        n_jobs=n_jobs,
+        verbose=0,
+    )
+    print(f"✅ ESM2-Only Stacking (Selector={use_selector}) pipeline created.")
+    return stacking_model
+
+
 def create_lgbm_pipeline(
     n_jobs: int = -1,
     selector_quantile: float = 0.8,
@@ -233,6 +299,70 @@ def create_embed_only_pipeline(embed_cols: List[str], n_jobs: int = -1, use_sele
     return pipeline
 
 
+def create_embed_only_stacking_pipeline(embed_cols: List[str], n_jobs: int = -1, use_selector: bool = True) -> StackingClassifier:
+    """
+    Create a stacking pipeline using ONLY embedding features.
+    Architecture: 2xLGBM (different seeds) + LR Meta.
+    """
+    embed_steps = [("scaler", StandardScaler())]
+    if use_selector:
+        embed_steps.append(
+            (
+                "selector",
+                CumulativeFeatureSelector(
+                    importance_quantile=0.90, corr_threshold=0.98, variance_threshold=0.0, verbose=True
+                ),
+            )
+        )
+    embed_preprocessor = Pipeline(embed_steps)
+
+    try:
+        embed_preprocessor.set_output(transform="pandas")
+    except Exception:
+        pass
+
+    common_lgbm_params = {
+        "n_estimators": 500,
+        "learning_rate": 0.05,
+        "num_leaves": 20,
+        "max_depth": 10,
+        "reg_alpha": 0.1,
+        "reg_lambda": 0.1,
+        "random_state": 42,
+        "n_jobs": n_jobs,
+        "verbose": -1,
+        "class_weight": "balanced",
+    }
+    
+    lgbm_p1 = dict(common_lgbm_params)
+    lgbm_p2 = dict(common_lgbm_params)
+    lgbm_p2["random_state"] = 123
+
+    est1 = Pipeline(
+        [
+            ("preprocessor", ColumnTransformer([("embed_transformer", embed_preprocessor, embed_cols)], remainder="drop", n_jobs=n_jobs)),
+            ("model", LGBMClassifier(**lgbm_p1)),
+        ]
+    )
+
+    est2 = Pipeline(
+        [
+            ("preprocessor", ColumnTransformer([("embed_transformer", embed_preprocessor, embed_cols)], remainder="drop", n_jobs=n_jobs)),
+            ("model", LGBMClassifier(**lgbm_p2)),
+        ]
+    )
+
+    stacking_model = StackingClassifier(
+        estimators=[("embed_v1", est1), ("embed_v2", est2)],
+        final_estimator=LogisticRegression(random_state=42, class_weight="balanced"),
+        cv=3,
+        n_jobs=n_jobs,
+        verbose=0,
+    )
+    print(f"✅ Embed-Only Stacking (Selector={use_selector}) pipeline created.")
+    return stacking_model
+
+
 def create_interp_only_pipeline(interp_cols: List[str], n_jobs: int = -1, use_selector: bool = True):
     if use_selector:
         interp_preprocessor = CumulativeFeatureSelector(
@@ -267,6 +397,66 @@ def create_interp_only_pipeline(interp_cols: List[str], n_jobs: int = -1, use_se
     )
     print("✅ Interp-Only pipeline (updated) created.")
     return pipeline
+
+
+def create_interp_only_stacking_pipeline(interp_cols: List[str], n_jobs: int = -1, use_selector: bool = True) -> StackingClassifier:
+    """
+    Create a stacking pipeline using ONLY interpretable features.
+    Architecture: 2xLGBM (different seeds) + LR Meta.
+    """
+    if use_selector:
+        interp_preprocessor = CumulativeFeatureSelector(
+            importance_quantile=0.95, corr_threshold=0.97, variance_threshold=0.01, verbose=True
+        )
+    else:
+        interp_preprocessor = "passthrough"
+
+    try:
+        if hasattr(interp_preprocessor, "set_output"):
+            interp_preprocessor.set_output(transform="pandas")
+    except Exception:
+        pass
+
+    common_lgbm_params = {
+        "n_estimators": 500,
+        "learning_rate": 0.05,
+        "num_leaves": 20,
+        "max_depth": 10,
+        "reg_alpha": 0.1,
+        "reg_lambda": 0.1,
+        "random_state": 42,
+        "n_jobs": n_jobs,
+        "verbose": -1,
+        "class_weight": "balanced",
+    }
+    
+    lgbm_p1 = dict(common_lgbm_params)
+    lgbm_p2 = dict(common_lgbm_params)
+    lgbm_p2["random_state"] = 123
+
+    est1 = Pipeline(
+        [
+            ("preprocessor", ColumnTransformer([("interp_transformer", interp_preprocessor, interp_cols)], remainder="drop", n_jobs=n_jobs)),
+            ("model", LGBMClassifier(**lgbm_p1)),
+        ]
+    )
+
+    est2 = Pipeline(
+        [
+            ("preprocessor", ColumnTransformer([("interp_transformer", interp_preprocessor, interp_cols)], remainder="drop", n_jobs=n_jobs)),
+            ("model", LGBMClassifier(**lgbm_p2)),
+        ]
+    )
+
+    stacking_model = StackingClassifier(
+        estimators=[("interp_v1", est1), ("interp_v2", est2)],
+        final_estimator=LogisticRegression(random_state=42, class_weight="balanced"),
+        cv=3,
+        n_jobs=n_jobs,
+        verbose=0,
+    )
+    print(f"✅ Interp-Only Stacking (Selector={use_selector}) pipeline created.")
+    return stacking_model
 
 
 def define_stacking_columns(feature_engine: FeatureEngine, pairing_strategy: str = "concat") -> tuple[List[str], List[str]]:
