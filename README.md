@@ -13,74 +13,48 @@
   <em>Figure 1: The dual-branch architecture of HybridStack-PPI.</em>
 </p>
 
-## 🚀 Key Features
+## 🚀 Quick Start
 
-- **Biologically-Informed:** Explicitly utilizes SLiMs (Short Linear Motifs) from the ELM database combined with deep learning.
-- **High Accuracy:** Achieves **99.45%** accuracy on the Human BioGRID dataset via a rigorous Protein-level split protocol to prevent leakage.
-- **Hybrid Architecture:** A dual-branch system merging ESM-2 embeddings with physicochemical priors via a novel "motif-anchored" pooling strategy.
-- **Reproducible:** Deterministic results with fixed random seeds and protein-level cross-validation.
-
-## ⚙️ System Requirements
-
-- **OS:** Linux or macOS recommended (Windows supported via WSL2).
-- **Python:** 3.9+.
-- **Hardware:**
-  - **GPU:** CUDA-compatible GPU with at least **8GB VRAM** is recommended for ESM-2 (650M) inference.
-  - **RAM:** 16GB+ system memory.
-  - **Disk Space:** ~3GB for model weights and dataset cache.
-
-## 🛠️ Installation
-
-1. **Clone the repository:**
-
-   ```bash
-   git clone https://github.com/mxuanvan02/HybridStackPPI.git
-   cd HybridStackPPI
-   ```
-
-2. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-## 📂 Data Preparation
-
-### 1. BioGRID Datasets
-
-Due to GitHub file size limits, the processed `.tsv` files might not be included in the repo.
-
-- Ensure the `data/BioGrid/Human` and `data/BioGrid/Yeast` directories contain the required `human_pairs.tsv` and `yeast_pairs.tsv` files.
-- If missing, please run the preprocessing script or download the dataset from [Insert Link to Data Source].
-
-### 2. ELM Motifs Database
-
-The model automatically fetches motif definitions from the ELM database (http://elm.eu.org/elms/elms_index.tsv).
-
-## 📊 Reproducing Results
-
-To reproduce the benchmark results reported in the paper (Table 3 & Table 4):
+### 1. Installation
 
 ```bash
-# Run 5-fold CV on Human dataset
-python scripts/reproduce_results.py --dataset human --n-splits 5
-
-# Run 5-fold CV on Yeast dataset
-python scripts/reproduce_results.py --dataset yeast --n-splits 5
+git clone https://github.com/mxuanvan02/HybridStackPPI.git
+cd HybridStackPPI
+pip install -r requirements.txt
 ```
 
-## 🧪 Usage (Prediction)
-
-To predict the interaction probability between two arbitrary protein sequences using the trained model:
+### 2. Run Experiments
 
 ```bash
-python scripts/predict.py \
-  --seq1 "MEEPQSDPSVEPPLSQETFSDLWKLLP..." \
-  --seq2 "MCNTNMSVPTDGAVTTSQIPASEQET..."
+# 5-Fold Cross-Validation on Human dataset
+python scripts/run.py --dataset human
+
+# 5-Fold Cross-Validation on Yeast dataset  
+python scripts/run.py --dataset yeast
+
+# Ablation Study
+python scripts/run.py --dataset human --ablation
 ```
+
+## 📋 Pipeline Overview
+
+**HybridStack-PPI** uses a dual-branch stacking architecture with **Logistic Regression** as meta-learner:
+
+| Branch | Features | Base Learners |
+|--------|----------|---------------|
+| **ESM-2 Branch** | ESM-2 650M embeddings (2560-dim) | LightGBM |
+| **Bio Branch** | Physicochemical + SLiM motifs | LightGBM |
+
+## 📊 Datasets
+
+| Dataset | Proteins | Interactions | Source |
+|---------|----------|--------------|--------|
+| Human | 6,754 | 37,480 | BioGRID |
+| Yeast | 2,433 | 11,188 | BioGRID |
 
 ## 📂 Project Structure
 
-```
+```text
 HybridStackPPI/
 ├── hybridstack/              # Core Python package
 │   ├── __init__.py
@@ -93,31 +67,13 @@ HybridStackPPI/
 ├── scripts/                  # Experiments & Utility scripts
 │   ├── run.py                # Main experiment runner
 │   ├── predict.py            # Inference script
-│   ├── reproduce_results.py  # Reproduce paper results
-│   └── exp_*.py              # Ablation experiments
-├── utils/                    # Shared utilities
-│   ├── artifact_manager.py   # Experiment artifact management
-│   └── logger.py             # Advanced logging
+│   └── reproduce_results.py  # Reproduce paper results
 ├── data/                     # Datasets
 │   └── BioGrid/              # Human & Yeast PPI datasets
 ├── docs/                     # Documentation & figures
 ├── requirements.txt
 └── README.md
 ```
-
-<!-- ## 📝 Citation
-
-If you find HybridStack-PPI useful for your research, please cite our paper:
-
-```bibtex
-@article{mai2025hybridstack,
-  title={A Biologically-Informed Hybrid Stacking Framework for Protein-Protein Interaction Prediction},
-  author={Mai, Xuan Van and Dang, Tri Nguyen and Nguyen, Ngoc Thanh and Nguyen, Tuong Tri},
-  journal={Computer Science and Information Systems},
-  year={2025},
-  note={Under Review}
-}
-``` -->
 
 ## 📄 License
 
