@@ -16,17 +16,16 @@ def create_esm_only_stacking_pipeline(embed_cols: List[str], n_jobs: int = -1, u
     Create a stacking pipeline using ONLY ESM2 global features.
     Architecture: 2xLGBM (different seeds) + LR Meta.
     """
-    # Preprocessor: Scaler only (no selector as requested)
-    embed_steps = [("scaler", StandardScaler())]
+    # Preprocessor: Variance filter -> Scaler -> other filters (if any)
     if use_selector:
-        embed_steps.append(
-            (
-                "selector",
-                CumulativeFeatureSelector(
-                    importance_quantile=0.90, corr_threshold=0.98, variance_threshold=0.0, verbose=True
-                ),
-            )
-        )
+        embed_steps = [
+            ("variance", CumulativeFeatureSelector(use_importance=False, use_corr=False, variance_threshold=0.005, verbose=True)),
+            ("scaler", StandardScaler()),
+            ("selector", CumulativeFeatureSelector(use_variance=False, importance_quantile=0.90, corr_threshold=0.90, verbose=True))
+        ]
+    else:
+        embed_steps = [("scaler", StandardScaler())]
+    
     embed_preprocessor = Pipeline(embed_steps)
 
     try:
@@ -37,8 +36,8 @@ def create_esm_only_stacking_pipeline(embed_cols: List[str], n_jobs: int = -1, u
     common_lgbm_params = {
         "n_estimators": 500,
         "learning_rate": 0.05,
-        "num_leaves": 20,
-        "max_depth": 10,
+        "num_leaves": 31,
+        "max_depth": -1,
         "reg_alpha": 0.1,
         "reg_lambda": 0.1,
         "random_state": 42,
@@ -125,21 +124,20 @@ def create_stacking_pipeline(
 ) -> StackingClassifier:
     if use_selector:
         interp_preprocessor = CumulativeFeatureSelector(
-            importance_quantile=0.95, corr_threshold=0.97, variance_threshold=0.01, verbose=True
+            importance_quantile=0.97, corr_threshold=0.95, variance_threshold=0.0, verbose=True
         )
     else:
         interp_preprocessor = "passthrough"
 
-    embed_steps = [("scaler", StandardScaler())]
     if use_selector:
-        embed_steps.append(
-            (
-                "selector",
-                CumulativeFeatureSelector(
-                    importance_quantile=0.90, corr_threshold=0.98, variance_threshold=0.0, verbose=True
-                ),
-            )
-        )
+        embed_steps = [
+            ("variance", CumulativeFeatureSelector(use_importance=False, use_corr=False, variance_threshold=0.005, verbose=True)),
+            ("scaler", StandardScaler()),
+            ("selector", CumulativeFeatureSelector(use_variance=False, importance_quantile=0.90, corr_threshold=0.90, verbose=True))
+        ]
+    else:
+        embed_steps = [("scaler", StandardScaler())]
+    
     embed_preprocessor = Pipeline(embed_steps)
 
     try:
@@ -152,8 +150,8 @@ def create_stacking_pipeline(
     common_lgbm_params = {
         "n_estimators": 500,
         "learning_rate": 0.05,
-        "num_leaves": 20,
-        "max_depth": 10,
+        "num_leaves": 31,
+        "max_depth": -1,
         "reg_alpha": 0.1,
         "reg_lambda": 0.1,
         "random_state": 42,
@@ -183,7 +181,7 @@ def create_stacking_pipeline(
         n_jobs=n_jobs,
         verbose=0,
     )
-    print(f"✅ Stacking (Selector={use_selector}) pipeline created (using *permissive* thresholds).")
+    print(f"✅ Stacking (Selector={use_selector}) pipeline created (using *optimized* thresholds).")
     return stacking_model
 
 
@@ -304,16 +302,15 @@ def create_embed_only_stacking_pipeline(embed_cols: List[str], n_jobs: int = -1,
     Create a stacking pipeline using ONLY embedding features.
     Architecture: 2xLGBM (different seeds) + LR Meta.
     """
-    embed_steps = [("scaler", StandardScaler())]
     if use_selector:
-        embed_steps.append(
-            (
-                "selector",
-                CumulativeFeatureSelector(
-                    importance_quantile=0.90, corr_threshold=0.98, variance_threshold=0.0, verbose=True
-                ),
-            )
-        )
+        embed_steps = [
+            ("variance", CumulativeFeatureSelector(use_importance=False, use_corr=False, variance_threshold=0.005, verbose=True)),
+            ("scaler", StandardScaler()),
+            ("selector", CumulativeFeatureSelector(use_variance=False, importance_quantile=0.90, corr_threshold=0.90, verbose=True))
+        ]
+    else:
+        embed_steps = [("scaler", StandardScaler())]
+    
     embed_preprocessor = Pipeline(embed_steps)
 
     try:
@@ -324,8 +321,8 @@ def create_embed_only_stacking_pipeline(embed_cols: List[str], n_jobs: int = -1,
     common_lgbm_params = {
         "n_estimators": 500,
         "learning_rate": 0.05,
-        "num_leaves": 20,
-        "max_depth": 10,
+        "num_leaves": 31,
+        "max_depth": -1,
         "reg_alpha": 0.1,
         "reg_lambda": 0.1,
         "random_state": 42,
@@ -406,7 +403,7 @@ def create_interp_only_stacking_pipeline(interp_cols: List[str], n_jobs: int = -
     """
     if use_selector:
         interp_preprocessor = CumulativeFeatureSelector(
-            importance_quantile=0.95, corr_threshold=0.97, variance_threshold=0.01, verbose=True
+            importance_quantile=0.97, corr_threshold=0.95, variance_threshold=0.0, verbose=True
         )
     else:
         interp_preprocessor = "passthrough"
@@ -420,8 +417,8 @@ def create_interp_only_stacking_pipeline(interp_cols: List[str], n_jobs: int = -
     common_lgbm_params = {
         "n_estimators": 500,
         "learning_rate": 0.05,
-        "num_leaves": 20,
-        "max_depth": 10,
+        "num_leaves": 31,
+        "max_depth": -1,
         "reg_alpha": 0.1,
         "reg_lambda": 0.1,
         "random_state": 42,

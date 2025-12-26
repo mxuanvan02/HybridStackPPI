@@ -31,6 +31,10 @@ from hybridstack.data_utils import (
     get_protein_based_splits,
     get_cluster_based_splits,
     load_cluster_map,
+    deduplicate_sequences_and_pairs,
+    parse_cdhit_clusters,
+    run_cdhit_clustering,
+    create_cluster_based_cv_splits,
 )
 from hybridstack.builders import (
     create_embed_only_pipeline,
@@ -171,7 +175,8 @@ def run_experiment(
 
     def _load_and_clean(fasta_file: str, pairs_file: str, dataset_name: str):
         seqs, pairs = load_data(fasta_file, pairs_file)
-        pairs = canonicalize_pairs(pairs, dataset_name=dataset_name, logger=logger)
+        # Sequence-based deduplication to prevent leakage from redundant IDs
+        seqs, pairs = deduplicate_sequences_and_pairs(seqs, pairs, logger=logger)
         return seqs, pairs
 
     if test_fasta_path and test_pairs_path:
@@ -275,17 +280,34 @@ def run_experiment(
 
     pairs_df_for_split = pairs_df
     cluster_mapping = cluster_map
-    if cluster_mapping is None and cluster_path:
+    if cluster_mapping is None:
+        # Automatic CD-HIT clustering if no map provided
+        logger.phase("CD-HIT Clustering (40% identity cutoff)")
+        base_name = os.path.splitext(os.path.basename(fasta_path))[0]
+        output_prefix = os.path.join("cache", f"{base_name}_cdhit_40")
+        cluster_file = f"{output_prefix}.clstr"
+        
         try:
-            cluster_mapping = load_cluster_map(cluster_path)
-            logger.info(f"Loaded cluster map from {cluster_path} with {len(cluster_mapping)} entries.")
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(f"Could not load cluster map from {cluster_path}: {exc}")
+            if os.path.exists(cluster_file):
+                logger.info(f"✅ Found cached CD-HIT clusters: {cluster_file}")
+            else:
+                cluster_file = run_cdhit_clustering(fasta_path, output_prefix, identity_cutoff=0.4)
+            
+            cluster_mapping = parse_cdhit_clusters(cluster_file)
+            # cluster_mapping from parse_cdhit_clusters is cluster_id -> [proteins]
+            # convert to protein -> cluster_id for get_cluster_based_splits
+            prot_to_cluster = {}
+            for c_id, prots in cluster_mapping.items():
+                for p in prots:
+                    prot_to_cluster[p] = c_id
+            cluster_mapping = prot_to_cluster
+        except Exception as exc:
+            logger.warning(f"CD-HIT clustering failed: {exc}. Falling back to protein-level split.")
             cluster_mapping = None
 
     if n_splits > 1:
         if cluster_mapping:
-            logger.header(f"EXPERIMENT: {n_splits}-FOLD CV (CLUSTER-LEVEL SPLIT)")
+            logger.header(f"EXPERIMENT: {n_splits}-FOLD CV (CLUSTER-LEVEL SPLIT - CD-HIT 40%)")
             splits = get_cluster_based_splits(
                 pairs_df_for_split, cluster_mapping, n_splits=n_splits, random_state=random_state
             )

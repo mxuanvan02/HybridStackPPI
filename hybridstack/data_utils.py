@@ -27,6 +27,52 @@ def load_data(fasta_path: str, pairs_path: str):
     return sequences, pairs_df
 
 
+def deduplicate_sequences_and_pairs(sequences: Dict[str, str], pairs_df: pd.DataFrame, logger=None):
+    """
+    Map duplicate protein sequences to a single canonical ID and update pairs.
+    This prevents leakage where identical sequences have different IDs in Train/Val.
+    """
+    if logger:
+        logger.phase("Deduplicating sequences and updating pairs")
+
+    # 1. Group IDs by sequence
+    seq_to_ids = {}
+    for pid, seq in sequences.items():
+        if seq not in seq_to_ids:
+            seq_to_ids[seq] = []
+        seq_to_ids[seq].append(pid)
+
+    # 2. Map each original ID to a canonical ID (the first ID found for that sequence)
+    id_map = {}
+    clean_sequences = {}
+    for seq, ids in seq_to_ids.items():
+        canonical_id = ids[0]
+        clean_sequences[canonical_id] = seq
+        for pid in ids:
+            id_map[pid] = canonical_id
+
+    if logger:
+        logger.info(f"Unique sequences: {len(clean_sequences)} (from {len(sequences)} total IDs)")
+
+    # 3. Update pairs_df with canonical IDs
+    clean_pairs = pairs_df.copy()
+    
+    # Filter out pairs where IDs are not in our map (if any)
+    valid_mask = clean_pairs["protein1"].isin(id_map) & clean_pairs["protein2"].isin(id_map)
+    n_invalid = len(clean_pairs) - valid_mask.sum()
+    if n_invalid > 0 and logger:
+        logger.warning(f"Dropping {n_invalid} pairs with IDs not found in FASTA")
+    
+    clean_pairs = clean_pairs[valid_mask].copy()
+    clean_pairs["protein1"] = clean_pairs["protein1"].map(id_map)
+    clean_pairs["protein2"] = clean_pairs["protein2"].map(id_map)
+
+    # 4. Use canonicalize_pairs to drop actual duplicates (now that IDs are unified)
+    clean_pairs = canonicalize_pairs(clean_pairs, dataset_name="Unified-Sequence Dataset", logger=logger)
+
+    return clean_sequences, clean_pairs
+
+
 def canonicalize_pairs(pairs_df: pd.DataFrame, dataset_name: str = "Dataset", logger=None):
     """
     Sort protein1/protein2 alphabetically and drop duplicates to prevent data leakage.
@@ -693,14 +739,10 @@ __all__ = [
     "get_cache_filename",
     "save_feature_matrix_h5",
     "load_feature_matrix_h5",
-    "split_pairs_no_overlap",
-    "make_protein_folds",
-    "build_esm_only_pair_matrix",
-    "get_protein_based_splits",
-    "get_cluster_based_splits",
     "load_cluster_map",
     "run_cdhit_clustering",
     "parse_cdhit_clusters",
     "get_sota_consistent_splits",
     "create_cluster_based_cv_splits",
+    "deduplicate_sequences_and_pairs",
 ]

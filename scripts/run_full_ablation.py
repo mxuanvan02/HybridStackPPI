@@ -39,7 +39,7 @@ def main():
         print(f"### FULL ABLATION STUDY: {ds['name']}")
         print("#" * 100)
         
-        run_ablation_study(
+        results_df = run_ablation_study(
             fasta_path=ds['fasta'],
             pairs_path=ds['pairs'],
             h5_cache_path=args.h5_cache,
@@ -47,6 +47,13 @@ def main():
             n_splits=args.n_splits,
             n_jobs=args.n_jobs
         )
+        
+        # Save results to CSV
+        os.makedirs("results", exist_ok=True)
+        safe_name = ds['name'].lower().replace(" ", "_")
+        csv_path = f"results/ablation_{safe_name}.csv"
+        results_df.to_csv(csv_path)
+        print(f"\n✅ Results for {ds['name']} saved to {csv_path}")
 
 if __name__ == "__main__":
     main()
