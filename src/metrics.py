@@ -1,0 +1,786 @@
+import warnings
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import (
+    accuracy_score,
+    auc,
+    average_precision_score,
+    confusion_matrix,
+    f1_score,
+    matthews_corrcoef,
+    precision_recall_curve,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+    roc_curve,
+)
+
+warnings.filterwarnings("ignore", category=UserWarning)
+
+
+def _safe_fig_close():
+    """Close matplotlib figure without raising; helps with long experiment runs."""
+    try:
+        plt.close()
+    except Exception:
+        pass
+
+
+def display_full_metrics(y_true, y_pred, y_proba, title: str = "📊 Evaluation Metrics"):
+    """Compute and print a full set of classification metrics."""
+    try:
+        tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+    except ValueError:
+        print("  ⚠️  Warning: Could not generate full confusion matrix. Model might be predicting only one class.")
+        tn, fp, fn, tp = 0, 0, 0, 0
+
+    metrics = {
+        "Accuracy": accuracy_score(y_true, y_pred),
+        "Precision": precision_score(y_true, y_pred, zero_division=0),
+        "Recall (Sensitivity)": recall_score(y_true, y_pred, zero_division=0),
+        "F1 Score": f1_score(y_true, y_pred, zero_division=0),
+        "Specificity": tn / (tn + fp) if (tn + fp) > 0 else 0.0,
+        "MCC": matthews_corrcoef(y_true, y_pred),
+        "ROC-AUC": roc_auc_score(y_true, y_proba),
+        "PR-AUC": average_precision_score(y_true, y_proba),
+    }
+
+    metrics_df = pd.DataFrame(list(metrics.items()), columns=["Metric", "Score"])
+    metrics_df["Formatted"] = metrics_df["Score"].apply(lambda x: f"{x*100:.2f}%")
+
+    print(f"\n--- {title} ---")
+    print(metrics_df[["Metric", "Formatted"]].to_string(index=False))
+    return metrics
+
+
+def plot_evaluation_results(y_true, y_pred, y_proba, model_name: str = "Model"):
+    """Plot ROC, PR, confusion matrix, and metric bars."""
+    metrics = {
+        "Accuracy": accuracy_score(y_true, y_pred),
+        "Precision": precision_score(y_true, y_pred, zero_division=0),
+        "Recall": recall_score(y_true, y_pred, zero_division=0),
+        "F1 Score": f1_score(y_true, y_pred, zero_division=0),
+        "PR-AUC": average_precision_score(y_true, y_proba),
+        "ROC-AUC": roc_auc_score(y_true, y_proba),
+    }
+
+    fig, axes = plt.subplots(2, 2, figsize=(16, 14))
+    fig.suptitle(f"Evaluation Dashboard for {model_name}", fontsize=20, weight="bold")
+
+    fpr, tpr, _ = roc_curve(y_true, y_proba)
+    roc_auc = auc(fpr, tpr)
+    axes[0, 0].plot(fpr, tpr, color="darkorange", lw=2, label=f"ROC curve (area = {roc_auc:0.3f})")
+    axes[0, 0].plot([0, 1], [0, 1], color="navy", lw=2, linestyle="--")
+    axes[0, 0].set_title("Receiver Operating Characteristic (ROC)", fontsize=14)
+    axes[0, 0].set_xlabel("False Positive Rate")
+    axes[0, 0].set_ylabel("True Positive Rate")
+    axes[0, 0].legend(loc="lower right")
+    axes[0, 0].grid(alpha=0.3)
+
+    precision, recall, _ = precision_recall_curve(y_true, y_proba)
+    pr_auc = metrics["PR-AUC"]
+    axes[0, 1].plot(recall, precision, color="blue", lw=2, label=f"PR curve (area = {pr_auc:0.3f})")
+    axes[0, 1].set_title("Precision-Recall Curve", fontsize=14)
+    axes[0, 1].set_xlabel("Recall")
+    axes[0, 1].set_ylabel("Precision")
+    axes[0, 1].legend(loc="lower left")
+    axes[0, 1].grid(alpha=0.3)
+
+    cm = confusion_matrix(y_true, y_pred)
+    sns.heatmap(
+        cm,
+        annot=True,
+        fmt="d",
+        cmap="Blues",
+        ax=axes[1, 0],
+        xticklabels=["Negative", "Positive"],
+        yticklabels=["Negative", "Positive"],
+        annot_kws={"size": 16},
+    )
+    axes[1, 0].set_title("Confusion Matrix", fontsize=14)
+    axes[1, 0].set_ylabel("True Label")
+    axes[1, 0].set_xlabel("Predicted Label")
+
+    metrics_df = pd.DataFrame(list(metrics.items()), columns=["Metric", "Score"])
+    sns.barplot(x="Score", y="Metric", data=metrics_df, ax=axes[1, 1], palette="viridis")
+    axes[1, 1].set_title("Performance Metrics", fontsize=14)
+    axes[1, 1].set_xlim([0, 1])
+    for index, value in enumerate(metrics_df["Score"]):
+        axes[1, 1].text(value + 0.01, index, f"{value:.3f}", va="center", weight="bold")
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.show()
+
+
+def plot_train_test_curves(y_train, proba_train, y_test, proba_test, model_name: str = "Model"):
+    """Plot ROC/PR for train vs test to visualize overfitting."""
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+    fpr_tr, tpr_tr, _ = roc_curve(y_train, proba_train)
+    fpr_te, tpr_te, _ = roc_curve(y_test, proba_test)
+    axes[0].plot(fpr_tr, tpr_tr, label=f"Train (AUC={auc(fpr_tr, tpr_tr):.3f})")
+    axes[0].plot(fpr_te, tpr_te, label=f"Test (AUC={auc(fpr_te, tpr_te):.3f})")
+    axes[0].plot([0, 1], [0, 1], linestyle="--", color="gray")
+    axes[0].set_xlabel("False Positive Rate")
+    axes[0].set_ylabel("True Positive Rate")
+    axes[0].set_title(f"ROC - {model_name}")
+    axes[0].legend()
+    axes[0].grid(alpha=0.3)
+
+    pr_tr, rc_tr, _ = precision_recall_curve(y_train, proba_train)
+    pr_te, rc_te, _ = precision_recall_curve(y_test, proba_test)
+    axes[1].plot(rc_tr, pr_tr, label=f"Train (AUC={average_precision_score(y_train, proba_train):.3f})")
+    axes[1].plot(rc_te, pr_te, label=f"Test (AUC={average_precision_score(y_test, proba_test):.3f})")
+    axes[1].set_xlabel("Recall")
+    axes[1].set_ylabel("Precision")
+    axes[1].set_title(f"Precision-Recall - {model_name}")
+    axes[1].legend()
+    axes[1].grid(alpha=0.3)
+
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_confusion_matrix_custom(y_true, y_pred, title: str = "Confusion Matrix"):
+    cm = confusion_matrix(y_true, y_pred)
+    plt.figure(figsize=(5, 4))
+    sns.heatmap(
+        cm,
+        annot=True,
+        fmt="d",
+        cmap="Blues",
+        xticklabels=["Negative", "Positive"],
+        yticklabels=["Negative", "Positive"],
+    )
+    plt.xlabel("Predicted")
+    plt.ylabel("True")
+    plt.title(title)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_feature_importance(model, feature_names=None, top_n: int = 20, title: str = "Feature Importance"):
+    """Plot feature_importances_ if available."""
+    estimator = model
+    if hasattr(model, "named_steps") and "model" in model.named_steps:
+        estimator = model.named_steps["model"]
+    if hasattr(estimator, "feature_importances_"):
+        importances = estimator.feature_importances_
+        idx = np.argsort(importances)[::-1][:top_n]
+        names = [feature_names[i] if feature_names is not None else f"f_{i}" for i in idx]
+        plt.figure(figsize=(8, max(4, top_n * 0.3)))
+        sns.barplot(x=importances[idx], y=names, orient="h", palette="viridis")
+        plt.title(title)
+        plt.xlabel("Importance")
+        plt.ylabel("Feature")
+        plt.tight_layout()
+        plt.show()
+    else:
+        print("⚠️  Cannot plot feature importance: model has no feature_importances_.")
+
+
+def save_roc_pr_curves(y_true, y_proba, prefix: str = "eval", title: str = "ROC/PR"):
+    """Save ROC and PR curves to files."""
+    fpr, tpr, _ = roc_curve(y_true, y_proba)
+    roc_auc = auc(fpr, tpr)
+    plt.figure(figsize=(6, 5), dpi=300)
+    plt.plot(fpr, tpr, color="darkorange", lw=2, label=f"AUC = {roc_auc:0.3f}")
+    plt.plot([0, 1], [0, 1], color="navy", lw=1, linestyle="--")
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.title(f"ROC - {title}")
+    plt.legend(loc="lower right")
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    roc_path = f"{prefix}_roc.png"
+    plt.savefig(roc_path)
+    _safe_fig_close()
+
+    precision, recall, _ = precision_recall_curve(y_true, y_proba)
+    pr_auc = average_precision_score(y_true, y_proba)
+    plt.figure(figsize=(6, 5), dpi=300)
+    plt.plot(recall, precision, color="blue", lw=2, label=f"AP = {pr_auc:0.3f}")
+    plt.xlabel("Recall")
+    plt.ylabel("Precision")
+    plt.title(f"Precision-Recall - {title}")
+    plt.legend(loc="lower left")
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    pr_path = f"{prefix}_pr.png"
+    plt.savefig(pr_path)
+    _safe_fig_close()
+    print(f"   ✅ Saved {roc_path} and {pr_path}")
+
+
+def plot_roc_pr_curves(y_true, y_proba, title: str = "ROC/PR Curves", prefix: str = "eval"):
+    """
+    Compatibility wrapper used by experiments.run.
+    Generates and saves ROC/PR curves; returns file paths.
+    """
+    save_roc_pr_curves(y_true, y_proba, prefix=prefix, title=title)
+    return f"{prefix}_roc.png", f"{prefix}_pr.png"
+
+
+def save_feature_importance_hybrid(
+    importances, feature_names, top_k: int = 20, path_png: str = "feature_importance_hybrid.png", path_csv: str = "feature_importance_top.csv"
+):
+    """Save hybrid feature importance with color-coded groups."""
+    if len(importances) != len(feature_names):
+        print(f"   Warning: Shape mismatch. Features: {len(feature_names)}, Importances: {len(importances)}")
+        return
+    df_imp = pd.DataFrame({"Feature": feature_names, "Importance": importances})
+    df_imp = df_imp.sort_values(by="Importance", ascending=False)
+    df_imp.head(50).to_csv(path_csv, index=False)
+
+    def get_cat(name: str):
+        if "Motif" in name:
+            return "Biological Motif"
+        if "CTD" in name or "AAC" in name or "PAAC" in name or "Moran" in name:
+            return "Physicochemical"
+        return "Deep Embeddings (ESM2)"
+
+    df_plot = df_imp.head(top_k).copy()
+    df_plot["Category"] = df_plot["Feature"].apply(get_cat)
+
+    palette = {
+        "Biological Motif": "#d62728",
+        "Physicochemical": "#ff7f0e",
+        "Deep Embeddings (ESM2)": "#1f77b4",
+    }
+
+    plt.figure(figsize=(10, 8), dpi=300)
+    sns.barplot(data=df_plot, x="Importance", y="Feature", hue="Category", dodge=False, palette=palette)
+    plt.title("Hybrid Feature Importance\nDeep (Blue) vs Biological Motifs/Properties (Red/Orange)", fontsize=14)
+    plt.xlabel("Importance")
+    plt.ylabel("")
+    plt.legend(title="Feature Group", loc="best")
+    plt.tight_layout()
+    plt.savefig(path_png)
+    plt.close()
+    print(f"   ✅ Saved {path_png} and {path_csv}")
+
+
+def plot_correlation_heatmap(X: pd.DataFrame, max_cols: int = 40, title: str = "Correlation Heatmap"):
+    """Show correlation heatmap on up to max_cols columns."""
+    if not isinstance(X, pd.DataFrame):
+        print("⚠️  Correlation heatmap requires a DataFrame.")
+        return
+    cols = X.columns[:max_cols]
+    corr = X[cols].corr()
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(corr, cmap="coolwarm", center=0, square=True, cbar_kws={"shrink": 0.6})
+    plt.title(f"{title} (first {len(cols)} features)")
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_embedding_projection(X: pd.DataFrame, y: pd.Series, method: str = "tsne", max_samples: int = 2000, random_state: int = 42):
+    """t-SNE/UMAP projection for embeddings; subsample to avoid heavy plots."""
+    if not isinstance(X, pd.DataFrame):
+        print("⚠️  Embedding projection requires a DataFrame.")
+        return
+    if len(X) > max_samples:
+        X = X.sample(n=max_samples, random_state=random_state)
+        y = y.loc[X.index]
+    if method == "tsne":
+        try:
+            from sklearn.manifold import TSNE
+        except ImportError:
+            print("⚠️  sklearn.manifold.TSNE not available.")
+            return
+        emb = TSNE(n_components=2, random_state=random_state, init="pca").fit_transform(X)
+    else:
+        try:
+            import umap
+        except ImportError:
+            print("⚠️  umap-learn not installed.")
+            return
+        reducer = umap.UMAP(n_components=2, random_state=random_state)
+        emb = reducer.fit_transform(X)
+    plt.figure(figsize=(8, 6))
+    plt.scatter(emb[:, 0], emb[:, 1], c=y, cmap="coolwarm", alpha=0.6, s=10)
+    plt.title(f"{method.upper()} projection")
+    plt.xlabel("dim1")
+    plt.ylabel("dim2")
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_learning_curve_sklearn(
+    estimator, X, y, cv=3, train_sizes=np.linspace(0.2, 1.0, 5), scoring: str = "roc_auc", n_jobs: int = -1
+):
+    """Plot learning curves using sklearn.model_selection.learning_curve."""
+    try:
+        from sklearn.model_selection import learning_curve
+    except ImportError:
+        print("⚠️  sklearn not available for learning_curve.")
+        return
+    train_sizes, train_scores, val_scores = learning_curve(
+        estimator, X, y, cv=cv, train_sizes=train_sizes, scoring=scoring, n_jobs=n_jobs
+    )
+    train_mean = train_scores.mean(axis=1)
+    val_mean = val_scores.mean(axis=1)
+    plt.figure(figsize=(8, 6))
+    plt.plot(train_sizes, train_mean, marker="o", label="Train")
+    plt.plot(train_sizes, val_mean, marker="s", label="Validation")
+    plt.xlabel("Train size")
+    plt.ylabel(scoring)
+    plt.title("Learning Curve")
+    plt.legend()
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+
+
+# Compatibility helpers for experiments.run
+def plot_feature_importance_for_paper(model, feature_names=None, title="Feature Importance", save_path="feature_importance_paper.png"):
+    """Alias to plot_feature_importance with save to file."""
+    plt.figure()
+    plot_feature_importance(model, feature_names=feature_names, top_n=20, title=title)
+    plt.savefig(save_path, bbox_inches="tight")
+    _safe_fig_close()
+    print(f"   ✅ Saved {save_path}")
+
+
+def save_feature_importance_table(importances, feature_names, top_k: int = 50, path: str = "feature_importance_top.csv"):
+    """
+    Save a CSV containing top feature importances; gracefully handles mismatched shapes.
+    """
+    if len(importances) != len(feature_names):
+        print(f"⚠️  Skipping save_feature_importance_table due to shape mismatch: {len(importances)} vs {len(feature_names)}")
+        return
+    df = pd.DataFrame({"Feature": feature_names, "Importance": importances})
+    df = df.sort_values(by="Importance", ascending=False)
+    df.head(top_k).to_csv(path, index=False)
+    print(f"   ✅ Saved top-{top_k} feature importances to {path}")
+
+
+def plot_hybrid_feature_importance(importances, feature_names, top_k: int = 20, save_path: str = "feature_importance_hybrid.png"):
+    """
+    Thin wrapper that reuses the hybrid saver but keeps the API used by experiments.run.
+    """
+    save_feature_importance_hybrid(
+        importances=importances,
+        feature_names=feature_names,
+        top_k=top_k,
+        path_png=save_path,
+        path_csv="feature_importance_top.csv",
+    )
+
+
+def print_paper_style_results(metrics_obj):
+    """
+    Pretty-print metrics as percentages.
+
+    Accepts either a dict (single run) or list of dicts (e.g., CV folds).
+    """
+    if isinstance(metrics_obj, list):
+        if not metrics_obj:
+            print("No metrics to display.")
+            return
+        df = pd.DataFrame(metrics_obj)
+        numeric_means = df.select_dtypes(include="number").mean()
+        for k, v in numeric_means.items():
+            print(f"{k:<20}: {v*100:.2f}%")
+        return
+
+    if isinstance(metrics_obj, dict):
+        for k, v in metrics_obj.items():
+            print(f"{k:<20}: {v*100:.2f}%")
+        return
+
+    raise TypeError(f"Unsupported metrics type: {type(metrics_obj)}")
+
+
+def plot_cv_roc_pr_curves(cv_results: list, save_dir: str = "results/plots",  title: str = "5-Fold Cross-Validation", prefix: str = "cv"):
+    """
+    Plot mean ROC and PR curves with ± std deviation bands from CV results.
+    
+    Args:
+        cv_results: List of dicts with keys 'y_true' and 'y_proba' for each fold
+        save_dir: Directory to save plots
+        title: Title prefix for plots
+        
+    Example:
+        cv_results = [
+            {'y_true': y_val_fold1, 'y_proba': proba_fold1'},
+            {'y_true': y_val_fold2, 'y_proba': proba_fold2'},
+            ...
+        ]
+        plot_cv_roc_pr_curves(cv_results)
+    """
+    import os
+    os.makedirs(save_dir, exist_ok=True)
+    
+    # Set publication style
+    sns.set_style("whitegrid")
+    plt.rcParams['font.family'] = 'DejaVu Sans'  # Fallback from Times New Roman
+    plt.rcParams['font.size'] = 12
+    
+    n_folds = len(cv_results)
+    
+    # ============================================================================
+    # ROC CURVES
+    # ============================================================================
+    print(f"\n📊 Generating {n_folds}-Fold CV ROC Curves...")
+    
+    # Interpolate all folds to common FPR axis
+    mean_fpr = np.linspace(0, 1, 100)
+    tprs = []
+    aucs = []
+    
+    fig_roc, ax_roc = plt.subplots(figsize=(8, 7), dpi=300)
+    
+    for fold_idx, fold_data in enumerate(cv_results, 1):
+        y_true = fold_data['y_true']
+        y_proba = fold_data['y_proba']
+        
+        fpr, tpr, _ = roc_curve(y_true, y_proba)
+        roc_auc = auc(fpr, tpr)
+        aucs.append(roc_auc)
+        
+        # Interpolate TPR at mean FPR points
+        interp_tpr =np.interp(mean_fpr, fpr, tpr)
+        interp_tpr[0] = 0.0  # Force start at (0, 0)
+        tprs.append(interp_tpr)
+        
+        # Plot individual fold (light color)
+        ax_roc.plot(fpr, tpr, lw=1, alpha=0.3, color='steelblue',
+                   label=f'Fold {fold_idx} (AUC = {roc_auc:.3f})' if fold_idx == 1 else '')
+    
+    # Compute mean and std
+    mean_tpr = np.mean(tprs, axis=0)
+    mean_tpr[-1] = 1.0  # Force end at (1, 1)
+    std_tpr = np.std(tprs, axis=0)
+    mean_auc = np.mean(aucs)
+    std_auc = np.std(aucs)
+    
+    # Plot mean ROC curve
+    ax_roc.plot(mean_fpr, mean_tpr, color='darkblue', lw=3,
+               label=f'Mean ROC (AUC = {mean_auc:.3f} ± {std_auc:.3f})')
+    
+    # Fill between ± 1 std
+    tprs_upper = np.minimum(mean_tpr + std_tpr, 1)
+    tprs_lower = np.maximum(mean_tpr - std_tpr, 0)
+    ax_roc.fill_between(mean_fpr, tprs_lower, tprs_upper, color='steelblue', 
+                        alpha=0.2, label='± 1 std. dev.')
+    
+    # Diagonal reference line
+    ax_roc.plot([0, 1], [0, 1], 'k--', lw=2, label='Random Classifier')
+    
+    ax_roc.set_xlim([-2, 102])
+    ax_roc.set_ylim([-2, 102])
+    ax_roc.set_xlabel('False Positive Rate (%)', fontsize=14, fontweight='bold')
+    ax_roc.set_ylabel('True Positive Rate (%)', fontsize=14, fontweight='bold')
+    ax_roc.set_title(f'{title}\nReceiver Operating Characteristic (ROC)', fontsize=16, fontweight='bold')
+    
+    # Update ticks to percentage
+    import matplotlib.ticker as mtick
+    ax_roc.xaxis.set_major_formatter(mtick.PercentFormatter(1.0))
+    ax_roc.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
+    
+    ax_roc.legend(loc='lower right', fontsize=10, framealpha=0.9)
+    ax_roc.grid(True, alpha=0.3)
+    
+    # Save ROC
+    roc_png_path = os.path.join(save_dir, f'{prefix}_roc_mean.png')
+    roc_pdf_path = os.path.join(save_dir, f'{prefix}_roc_mean.pdf')
+    fig_roc.tight_layout()
+    fig_roc.savefig(roc_png_path, dpi=300, bbox_inches='tight')
+    fig_roc.savefig(roc_pdf_path, bbox_inches='tight')
+    _safe_fig_close()
+    
+    print(f"   ✅ Saved {roc_png_path} (PNG) and {roc_pdf_path} (PDF)")
+    
+    # ============================================================================
+    # PRECISION-RECALL CURVES
+    # ============================================================================
+    print(f"📊 Generating {n_folds}-Fold CV Precision-Recall Curves...")
+    
+    # Interpolate all folds to common recall axis
+    mean_recall = np.linspace(0, 1, 100)
+    precisions = []
+    pr_aucs = []
+    
+    fig_pr, ax_pr = plt.subplots(figsize=(8, 7), dpi=300)
+    
+    for fold_idx, fold_data in enumerate(cv_results, 1):
+        y_true = fold_data['y_true']
+        y_proba = fold_data['y_proba']
+        
+        precision, recall, _ = precision_recall_curve(y_true, y_proba)
+        pr_auc = average_precision_score(y_true, y_proba)
+        pr_aucs.append(pr_auc)
+        
+        # Interpolate precision at mean recall points (reverse order for PR)
+        interp_precision = np.interp(mean_recall, recall[::-1], precision[::-1])
+        precisions.append(interp_precision)
+        
+        # Plot individual fold
+        ax_pr.plot(recall, precision, lw=1, alpha=0.3, color='coral',
+                  label=f'Fold {fold_idx} (AP = {pr_auc:.3f})' if fold_idx == 1 else '')
+    
+    # Compute mean and std
+    mean_precision = np.mean(precisions, axis=0)
+    std_precision = np.std(precisions, axis=0)
+    mean_pr_auc = np.mean(pr_aucs)
+    std_pr_auc = np.std(pr_aucs)
+    
+    # Plot mean PR curve
+    ax_pr.plot(mean_recall, mean_precision, color='darkred', lw=3,
+              label=f'Mean PR (AP = {mean_pr_auc:.3f} ± {std_pr_auc:.3f})')
+    
+    # Fill between ± 1 std
+    precision_upper = np.minimum(mean_precision + std_precision, 1)
+    precision_lower = np.maximum(mean_precision - std_precision, 0)
+    ax_pr.fill_between(mean_recall, precision_lower, precision_upper, 
+                       color='coral', alpha=0.2, label='± 1 std. dev.')
+    
+    ax_pr.set_xlim([-2, 102])
+    ax_pr.set_ylim([-2, 102])
+    ax_pr.set_xlabel('Recall (%)', fontsize=14, fontweight='bold')
+    ax_pr.set_ylabel('Precision (%)', fontsize=14, fontweight='bold')
+    ax_pr.set_title(f'{title}\nPrecision-Recall Curve', fontsize=16, fontweight='bold')
+    
+    # Update ticks to percentage
+    import matplotlib.ticker as mtick
+    ax_pr.xaxis.set_major_formatter(mtick.PercentFormatter(1.0))
+    ax_pr.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
+    
+    ax_pr.legend(loc='lower left', fontsize=10, framealpha=0.9)
+    ax_pr.grid(True, alpha=0.3)
+    
+    # Save PR
+    pr_png_path = os.path.join(save_dir, f'{prefix}_pr_mean.png')
+    pr_pdf_path = os.path.join(save_dir, f'{prefix}_pr_mean.pdf')
+    fig_pr.tight_layout()
+    fig_pr.savefig(pr_png_path, dpi=300, bbox_inches='tight')
+    fig_pr.savefig(pr_pdf_path, bbox_inches='tight')
+    _safe_fig_close()
+    
+    print(f"   ✅ Saved {pr_png_path} (PNG) and {pr_pdf_path} (PDF)")
+    
+    # Summary statistics
+    print(f"\n📈 CV Statistics:")
+    print(f"   Mean ROC-AUC: {mean_auc:.4f} ± {std_auc:.4f}")
+    print(f"   Mean PR-AUC:  {mean_pr_auc:.4f} ± {std_pr_auc:.4f}")
+    
+    return {
+        'mean_roc_auc': mean_auc,
+        'std_roc_auc': std_auc,
+        'mean_pr_auc': mean_pr_auc,
+        'std_pr_auc': std_pr_auc,
+    }
+
+
+def plot_cv_metric_distribution(fold_metrics: list, save_dir: str = "results/plots", title: str = "5-Fold CV Metrics", prefix: str = "cv"):
+    """
+    Plot boxplots showing distribution of metrics across CV folds.
+    
+    Args:
+        fold_metrics: List of metric dicts from each fold (output of display_full_metrics)
+        save_dir: Directory to save plots
+        title: Title for the plot
+        
+    Example:
+        fold_metrics = [
+            {'Accuracy': 0.95, 'F1 Score': 0.94, 'MCC': 0.89, ...},
+            {'Accuracy': 0.96, 'F1 Score': 0.95, 'MCC': 0.90, ...},
+            ...
+        ]
+        plot_cv_metric_distribution(fold_metrics)
+    """
+    import os
+    os.makedirs(save_dir, exist_ok=True)
+    
+    # Convert to DataFrame
+    df = pd.DataFrame(fold_metrics)
+    
+    # Select key metrics for visualization
+    key_metrics = ['Accuracy', 'F1 Score', 'MCC', 'ROC-AUC', 'PR-AUC', 'Precision', 'Recall (Sensitivity)']
+    available_metrics = [m for m in key_metrics if m in df.columns]
+    
+    if not available_metrics:
+        print("⚠️  No metrics available for boxplot visualization")
+        return
+    
+    # Set publication style
+    sns.set_style("whitegrid")
+    plt.rcParams['font.family'] = 'DejaVu Sans'
+    plt.rcParams['font.size'] = 12
+    
+    print(f"\n📊 Generating CV Metric Distribution Boxplots...")
+    
+    # Create boxplot
+    fig, ax = plt.subplots(figsize=(12, 6), dpi=300)
+    
+    # Prepare data for boxplot
+    data_for_plot = df[available_metrics]
+    
+    # Create boxplot
+    bp = ax.boxplot([data_for_plot[col] for col in available_metrics],
+                    labels=available_metrics,
+                    patch_artist=True,
+                    notch=True,
+                    widths=0.6)
+    
+    # Color the boxes
+    colors = plt.cm.Set3(np.linspace(0, 1, len(available_metrics)))
+    for patch, color in zip(bp['boxes'], colors):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.7)
+    
+    # Add mean markers
+    means = [data_for_plot[col].mean() for col in available_metrics]
+    ax.plot(range(1, len(available_metrics) + 1), means, 'D', 
+            color='red', markersize=8, label='Mean', zorder=3)
+    
+    # Add value annotations
+    for i, col in enumerate(available_metrics, 1):
+        mean_val = data_for_plot[col].mean()
+        std_val = data_for_plot[col].std()
+        ax.text(i, mean_val + 0.02, f'{mean_val:.3f}\n± {std_val:.3f}',
+               ha='center', va='bottom', fontsize=9, fontweight='bold',
+               bbox=dict(boxstyle='round,pad=0.3', facecolor='yellow', alpha=0.5))
+    
+    ax.set_ylabel('Score', fontsize=14, fontweight='bold')
+    ax.set_title(f'{title} - Metric Stability Across Folds', fontsize=16, fontweight='bold')
+    ax.set_ylim([0, 1.05])
+    ax.grid(axis='y', alpha=0.3)
+    ax.legend(loc='lower right', fontsize=10)
+    plt.xticks(rotation=45, ha='right')
+    
+    # Save
+    png_path = os.path.join(save_dir, f'{prefix}_metric_boxplot.png')
+    pdf_path = os.path.join(save_dir, f'{prefix}_metric_boxplot.pdf')
+    fig.tight_layout()
+    fig.savefig(png_path, dpi=300, bbox_inches='tight')
+    fig.savefig(pdf_path, bbox_inches='tight')
+    _safe_fig_close()
+    
+    print(f"   ✅ Saved {png_path} (PNG) and {pdf_path} (PDF)")
+    
+    # Print summary statistics
+    print(f"\n📊 Metric Statistics Summary:")
+    print("=" * 70)
+    for col in available_metrics:
+        mean_val = data_for_plot[col].mean()
+        std_val = data_for_plot[col].std()
+        min_val = data_for_plot[col].min()
+        max_val = data_for_plot[col].max()
+        print(f"{col:<25} {mean_val:.4f} ± {std_val:.4f}  (min: {min_val:.4f}, max: {max_val:.4f})")
+    print("=" * 70)
+    
+    return df[available_metrics].describe()
+
+
+def plot_decision_power(contributions: dict, dataset_name: str = "HUMAN", save_dir: str = "results/plots"):
+    """
+    Plot Decision Power Distribution as a bar chart and pie chart.
+    Matches the user's requested visual style.
+    """
+    import os
+    os.makedirs(save_dir, exist_ok=True)
+    
+    sns.set_style("white")
+    plt.rcParams['font.size'] = 12
+    
+    labels = list(contributions.keys())
+    values = [contributions[l] for l in labels]
+    
+    # Simplify labels for display if they are "Biological Branch" etc.
+    display_labels = []
+    for l in labels:
+        if "Interp" in l or "Bio" in l: display_labels.append("Biological\nBranch")
+        elif "Embed" in l or "Deep" in l: display_labels.append("Deep Learning\nBranch")
+        else: display_labels.append(l)
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8), dpi=300)
+    
+    # 1. Bar Chart
+    colors = ['#2ecc71', '#3498db'] # Green and Blue
+    bars = ax1.bar(display_labels, values, color=colors, edgecolor='black', width=0.6)
+    ax1.set_ylabel('Contribution (%)', fontweight='bold')
+    ax1.set_title(f'Meta-Learner Branch Contributions\n({dataset_name} Dataset)', fontweight='bold', pad=20)
+    ax1.set_ylim(0, 100)
+    ax1.grid(axis='y', linestyle='--', alpha=0.4)
+    
+    # Add percentage labels on top of bars
+    for bar in bars:
+        height = bar.get_height()
+        ax1.text(bar.get_x() + bar.get_width()/2., height + 2,
+                f'{height:.1f}%', ha='center', va='bottom', fontweight='bold', fontsize=14)
+
+    # 2. Pie Chart
+    # Map back to compact labels for pie
+    pie_labels = ["Bio", "Deep"] if len(display_labels) == 2 else display_labels
+    explode = (0.05, 0) if len(values) > 1 else None
+    
+    ax2.pie(values, labels=pie_labels, autopct='%1.1f%%', startangle=90, 
+            colors=colors, explode=explode, textprops={'fontsize': 12, 'fontweight': 'bold'})
+    ax2.set_title(f'Decision Power Distribution\n({dataset_name} Dataset)', fontweight='bold', pad=20)
+    
+    # Save
+    name = f"decision_power_{dataset_name.lower()}.png"
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_dir, name), bbox_inches='tight')
+    plt.savefig(os.path.join(save_dir, name.replace(".png", ".pdf")), bbox_inches='tight')
+    _safe_fig_close()
+    print(f"   ✅ Saved decision power plots to {save_dir}/{name}")
+
+
+def generate_latex_table(all_metrics: list, method_name: str = "HybridStack-PPI"):
+    """
+    Generate a LaTeX table row for the results.
+    """
+    df = pd.DataFrame(all_metrics)
+    stats = {}
+    for col in df.columns:
+        if np.issubdtype(df[col].dtype, np.number):
+            mean = df[col].mean() * 100
+            std = df[col].std() * 100
+            stats[col] = f"${mean:.2f} \\pm {std:.2f}$"
+    
+    # Map our internal keys to the table columns
+    # Accuracy, Precision, Recall, Specificity, F1, MCC
+    row = [
+        method_name,
+        stats.get('Accuracy', 'N/A'),
+        stats.get('Precision', 'N/A'),
+        stats.get('Recall (Sensitivity)', 'N/A'),
+        stats.get('Specificity', 'N/A'),
+        stats.get('F1 Score', 'N/A'),
+        stats.get('MCC', 'N/A')
+    ]
+    
+    latex_row = " & ".join([f"\\mathbf{{{x}}}" if "pm" in x else x for x in row]) + " \\\\"
+    print("\n📝 LaTeX Table Row:")
+    print("-" * 50)
+    print(latex_row)
+    print("-" * 50)
+    return latex_row
+
+
+__all__ = [
+    "display_full_metrics",
+    "plot_evaluation_results",
+    "plot_train_test_curves",
+    "plot_confusion_matrix_custom",
+    "plot_feature_importance",
+    "save_roc_pr_curves",
+    "plot_roc_pr_curves",
+    "save_feature_importance_hybrid",
+    "plot_correlation_heatmap",
+    "plot_embedding_projection",
+    "plot_learning_curve_sklearn",
+    "plot_feature_importance_for_paper",
+    "save_feature_importance_table",
+    "plot_hybrid_feature_importance",
+    "print_paper_style_results",
+    "plot_cv_roc_pr_curves",
+    "plot_cv_metric_distribution",
+    "plot_decision_power",
+    "generate_latex_table",
+]

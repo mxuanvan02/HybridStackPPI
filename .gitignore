@@ -1,0 +1,52 @@
+# --- 1. IGNORE EVERYTHING BY DEFAULT ---
+*
+
+# --- 2. ALLOW FOLDERS (Re-include directories) ---
+!*/
+!scripts/**
+!data/**
+!models/**
+!notebooks/**
+!utils/**
+
+# --- 3. ALLOW SPECIFIC ROOT FILES ---
+!requirements.txt
+!README.md
+!.gitignore
+!LICENSE
+!reproduce_results.py
+
+# --- 4. EXPLICITLY IGNORE JUNK INSIDE ALLOWED FOLDERS ---
+# Even inside allowed folders, we don't want these:
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+.venv/
+venv/
+.env
+*.log
+*.zip
+*.tar.gz
+*.tmp
+*.bak
+*~
+
+# --- 5. BLOCK LARGE FILES ---
+# Prevent pushing large files > 100MB
+*.pth
+*.pt
+*.bin
+*.h5
+*.pkl
+*.joblib
+
+# --- 6. IGNORE EXTERNAL/GENERATED CONTENT ---
+external_tools/
+external_tools_backup_*/
+cache/
+logs/
+results/
+reports/
+benchmarks/
+*.lock
