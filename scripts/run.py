@@ -1,7 +1,22 @@
-import gc
+# Suppress all warnings before any imports
 import os
-import random
+import sys
 import warnings
+
+# Suppress TensorFlow and other noisy logs
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+warnings.filterwarnings('ignore')
+warnings.filterwarnings('ignore', category=DeprecationWarning)
+warnings.filterwarnings('ignore', category=FutureWarning)
+
+# Suppress multiprocessing ResourceTracker warnings
+import multiprocessing
+if hasattr(multiprocessing, 'resource_tracker'):
+    multiprocessing.resource_tracker._resource_tracker = None
+
+import gc
+import random
 
 import numpy as np
 import pandas as pd
@@ -168,7 +183,9 @@ def run_experiment(
     cluster_map: dict | None = None,
     cluster_path: str | None = None,
     cache_version: str = "v2",
-) -> dict:
+    feature_cache_override: str | None = None,
+    return_details: bool = False,
+):
     """
     Unified experiment runner with independent-test or protein-level CV.
     """
@@ -194,23 +211,16 @@ def run_experiment(
                 train_pairs_df = reduce_by_clusters(train_pairs_df, cluster_mapping, logger=logger)
                 test_pairs_df = reduce_by_clusters(test_pairs_df, cluster_mapping, logger=logger)
                 
-                # Reverse map: Cluster ID -> Rep Protein ID
-                cluster_to_rep = {}
-                for pid, cid in cluster_mapping.items():
-                    if cid not in cluster_to_rep and (pid in train_sequences or pid in test_sequences):
-                        cluster_to_rep[cid] = pid
-
+                # Sync sequences to contain ONLY original IDs present in the reduced pairs
                 used_train = set(train_pairs_df["protein1"]).union(set(train_pairs_df["protein2"]))
-                train_sequences = {cid: (train_sequences[cluster_to_rep[cid]] if cid in cluster_to_rep else train_sequences[cid]) 
-                                   for cid in used_train if cid in cluster_to_rep or cid in train_sequences}
+                train_sequences = {pid: train_sequences[pid] for pid in used_train if pid in train_sequences}
                 
                 used_test = set(test_pairs_df["protein1"]).union(set(test_pairs_df["protein2"]))
-                test_sequences = {cid: (test_sequences[cluster_to_rep[cid]] if cid in cluster_to_rep else test_sequences[cid]) 
-                                  for cid in used_test if cid in cluster_to_rep or cid in test_sequences}
+                test_sequences = {pid: test_sequences[pid] for pid in used_test if pid in test_sequences}
             except Exception as exc:  # noqa: BLE001
                 logger.warning(f"Clustering reduction failed: {exc}")
 
-        suffix = "cluster_v3" if cluster_path else ""
+        suffix = "cluster_v4" if cluster_path else ""
         train_cache_path = get_cache_filename(
             pairs_path, pairing_strategy, esm_model_name, cache_version=cache_version, suffix=suffix
         )
@@ -224,8 +234,25 @@ def run_experiment(
         def _ensure_feature_engine():
             nonlocal feature_engine, single_feature_names
             if feature_engine is None:
+                # Create FeatureEngine (and separate embedding cache for clean data if clustering is used)
+                emb_cache_to_use = h5_cache_path
+                readonly_fallbacks = []
+
+                if cluster_path:
+                    # Use a dedicated embedding cache for the clean dataset
+                    reduced_data_dir = os.path.join(os.path.dirname(fasta_path), "CDHIT_Reduced")
+                    dataset_tag = "yeast" if "yeast" in fasta_path.lower() else "human"
+                    emb_cache_to_use = os.path.join(reduced_data_dir, f"{dataset_tag}_clean_embeddings.h5")
+                    readonly_fallbacks = [h5_cache_path]
+                    logger.info(f"🧬 [Independent Test] Using portable embedding cache: {emb_cache_to_use}")
+                    logger.info(f"🔍 Fallback (read-only) source: {h5_cache_path}")
+
                 embedding_computer = EmbeddingComputer(model_name=esm_model_name)
-                feature_engine = FeatureEngine(h5_cache_path, embedding_computer)
+                feature_engine = FeatureEngine(
+                    h5_cache_path=emb_cache_to_use, 
+                    embedding_computer=embedding_computer,
+                    readonly_cache_paths=readonly_fallbacks
+                )
                 single_feature_names = feature_engine.get_feature_names()
 
         def _load_or_build(cache_path, sequences, pairs_df, split_name: str):
@@ -284,54 +311,44 @@ def run_experiment(
             # Reduce sequences and pairs to cluster representatives
             pairs_df = reduce_by_clusters(pairs_df, cluster_mapping, logger=logger)
             
-            # Create a reverse map: Cluster ID -> Representative Protein ID
-            # Since cluster_mapping is Protein -> Cluster, we pick the first protein encountered for each cluster.
-            cluster_to_rep = {}
-            for prot_id, clstr_id in cluster_mapping.items():
-                if clstr_id not in cluster_to_rep and prot_id in sequences:
-                    cluster_to_rep[clstr_id] = prot_id
-            
-            # New sequences dict where keys are Cluster IDs and values are representatives' sequences
-            new_sequences = {}
-            used_clusters = set(pairs_df["protein1"]).union(set(pairs_df["protein2"]))
-            for clstr_id in used_clusters:
-                rep_id = cluster_to_rep.get(clstr_id)
-                if rep_id:
-                    new_sequences[clstr_id] = sequences[rep_id]
-                else:
-                    # If clstr_id is actually a singleton protein ID (from reduce_by_clusters mapping fallback)
-                    if clstr_id in sequences:
-                        new_sequences[clstr_id] = sequences[clstr_id]
+            # Sync sequences dict to contain ONLY IDs present in the reduced pairs_df
+            present_proteins = set(pairs_df["protein1"]).union(set(pairs_df["protein2"]))
+            sequences = {pid: sequences[pid] for pid in present_proteins if pid in sequences}
 
-            sequences = new_sequences
             logger.info(f"Reduced sequences for extraction: {len(sequences)} cluster representatives.")
             
             # --- STEP 0.1: Save Reduced Datasets for Reproducibility ---
-            reduced_data_dir = os.path.join(os.path.dirname(fasta_path), "CDHIT_Reduced")
+            # Smart directory handling: avoid nesting if already in CDHIT_Reduced
+            base_dir = os.path.dirname(fasta_path)
+            if "CDHIT_Reduced" in base_dir:
+                reduced_data_dir = base_dir
+            else:
+                reduced_data_dir = os.path.join(base_dir, "CDHIT_Reduced")
+            
             os.makedirs(reduced_data_dir, exist_ok=True)
             
             dataset_tag = "yeast" if "yeast" in fasta_path.lower() else "human"
             clean_fasta_path = os.path.join(reduced_data_dir, f"{dataset_tag}_clean.fasta")
             clean_pairs_path = os.path.join(reduced_data_dir, f"{dataset_tag}_clean_pairs.tsv")
             
-            if not os.path.exists(clean_fasta_path) or not os.path.exists(clean_pairs_path):
-                logger.info(f"💾 Saving reduced datasets to {reduced_data_dir}...")
-                # Save FASTA
-                with open(clean_fasta_path, "w") as f:
-                    for pid, seq in sequences.items():
-                        f.write(f">{pid}\n{seq}\n")
-                # Save TSV
-                pairs_df.to_csv(clean_pairs_path, sep="\t", header=False, index=False)
-                logger.info(f"✅ Saved {len(sequences)} seqs to FASTA and {len(pairs_df)} pairs to TSV.")
-            else:
-                logger.info(f"ℹ️ Clean datasets already exist in {reduced_data_dir}. Skipping save.")
+            # Force save/overwrite to ensure ID consistency
+            logger.info(f"💾 Saving clean datasets (Original IDs) to {reduced_data_dir}...")
+            with open(clean_fasta_path, "w") as f:
+                for pid, seq in sequences.items():
+                    f.write(f">{pid}\n{seq}\n")
+            pairs_df.to_csv(clean_pairs_path, sep="\t", header=False, index=False)
+            logger.info(f"✅ Saved {len(sequences)} seqs to FASTA and {len(pairs_df)} pairs to TSV.")
 
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"Could not apply clustering reduction: {exc}")
             cluster_mapping = None
 
-    suffix = "cluster_v3" if cluster_path else ""
-    cache_path = get_cache_filename(pairs_path, pairing_strategy, esm_model_name, cache_version=cache_version, suffix=suffix)
+    suffix = "cluster_v4" if cluster_path else ""
+    if feature_cache_override:
+        cache_path = feature_cache_override
+        logger.info(f"Using pre-migrated feature cache: {cache_path}")
+    else:
+        cache_path = get_cache_filename(pairs_path, pairing_strategy, esm_model_name, cache_version=cache_version, suffix=suffix)
 
     feature_engine = None
     single_feature_names = None
@@ -339,8 +356,25 @@ def run_experiment(
     def _ensure_feature_engine():
         nonlocal feature_engine, single_feature_names
         if feature_engine is None:
+            # Create FeatureEngine (and separate embedding cache for clean data if clustering is used)
+            emb_cache_to_use = h5_cache_path
+            readonly_fallbacks = []
+
+            if cluster_path:
+                # Use a dedicated embedding cache for the clean dataset
+                reduced_data_dir = os.path.join(os.path.dirname(fasta_path), "CDHIT_Reduced")
+                dataset_tag = "yeast" if "yeast" in fasta_path.lower() else "human"
+                emb_cache_to_use = os.path.join(reduced_data_dir, f"{dataset_tag}_clean_embeddings.h5")
+                readonly_fallbacks = [h5_cache_path]
+                logger.info(f"🧬 Using portable embedding cache: {emb_cache_to_use}")
+                logger.info(f"🔍 Fallback (read-only) source: {h5_cache_path}")
+
             embedding_computer = EmbeddingComputer(model_name=esm_model_name)
-            feature_engine = FeatureEngine(h5_cache_path, embedding_computer)
+            feature_engine = FeatureEngine(
+                h5_cache_path=emb_cache_to_use, 
+                embedding_computer=embedding_computer,
+                readonly_cache_paths=readonly_fallbacks
+            )
             single_feature_names = feature_engine.get_feature_names()
 
     need_recompute = True
@@ -376,7 +410,8 @@ def run_experiment(
             splits = get_protein_based_splits(pairs_df_for_split, n_splits=n_splits, random_state=random_state)
 
         fold_metrics_list = []
-        cv_results = []  # NEW: Collect y_true and y_proba for CV visualization
+        cv_results = []  # Collect y_true and y_proba for CV visualization
+        fold_details = []  # Comprehensive per-fold data for publication reports
 
         for fold_idx, (train_indices, val_indices) in enumerate(splits):
             import time
@@ -444,9 +479,45 @@ def run_experiment(
             y_proba_val = model_pipeline.predict_proba(X_val_fold)[:, 1]
             
             # NEW: Collect results for CV visualization
+            # Compute metrics
+            metrics = display_full_metrics(y_val_fold, y_pred_val, y_proba_val, title=f"Fold {fold_idx + 1}")
+            fold_metrics_list.append(metrics)
+
+            # --- Decision Power (Branch Contribution) ---
+            decision_weights = None
+            if hasattr(model_pipeline.named_steps.get('model'), 'final_estimator_'):
+                meta = model_pipeline.named_steps['model'].final_estimator_
+                if hasattr(meta, 'coef_'):
+                    coefs = np.abs(meta.coef_[0])
+                    total_coef = np.sum(coefs)
+                    if total_coef > 0:
+                        contributions = coefs / total_coef * 100
+                        decision_weights = {
+                            'Biological': contributions[0],
+                            'Deep Learning': contributions[1],
+                            'raw_coefs': coefs.tolist()
+                        }
+                        logger.info(f"  💡 Decision Power: Biological={contributions[0]:.1f}%, Deep Learning={contributions[1]:.1f}%")
+                        if fold_idx == 0:
+                            dname = fasta_path.split('/')[-2].upper()
+                            plot_decision_power({"Biological": contributions[0], "Deep Learning": contributions[1]}, dataset_name=dname)
+
+            # Collect CV results for visualization
             cv_results.append({
                 'y_true': y_val_fold.values if hasattr(y_val_fold, 'values') else y_val_fold,
                 'y_proba': y_proba_val,
+            })
+
+            # Collect comprehensive fold details for publication reports
+            fold_details.append({
+                'fold_id': fold_idx + 1,
+                'y_true': np.array(y_val_fold.values if hasattr(y_val_fold, 'values') else y_val_fold),
+                'y_pred': y_pred_val,
+                'y_proba': y_proba_val,
+                'metrics': metrics.copy(),
+                'decision_weights': decision_weights,
+                'train_size': len(train_indices),
+                'val_size': len(val_indices),
             })
 
             if fold_idx == n_splits - 1:
@@ -457,32 +528,6 @@ def run_experiment(
                     logger=logger,
                     title="HybridStack-PPI Feature Importance (Top 20)",
                 )
-                try:
-                    plot_roc_pr_curves(
-                        y_val_fold,
-                        y_proba_val,
-                        title=f"Fold {fold_idx + 1}",
-                        prefix=f"fold{fold_idx + 1}",
-                    )
-                    logger.info(f"Saved fold{fold_idx + 1}_roc.png and fold{fold_idx + 1}_pr.png")
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(f"Could not plot ROC/PR for fold {fold_idx + 1}: {exc}")
-
-            metrics = display_full_metrics(y_val_fold, y_pred_val, y_proba_val, title=f"Fold {fold_idx + 1}")
-            fold_metrics_list.append(metrics)
-
-            # --- Decision Power (Branch Contribution) ---
-            if hasattr(model_pipeline.named_steps.get('model'), 'final_estimator_'):
-                meta = model_pipeline.named_steps['model'].final_estimator_
-                if hasattr(meta, 'coef_'):
-                    coefs = np.abs(meta.coef_[0])
-                    total_coef = np.sum(coefs)
-                    if total_coef > 0:
-                        contributions = coefs / total_coef * 100
-                        logger.info(f"  💡 Decision Power: Biological={contributions[0]:.1f}%, Deep Learning={contributions[1]:.1f}%")
-                        if fold_idx == 0:
-                            dname = fasta_path.split('/')[-2].upper()
-                            plot_decision_power({"Biological": contributions[0], "Deep Learning": contributions[1]}, dataset_name=dname)
             
             fold_time = time.time() - fold_start
             logger.info(f"  ⏱️ Fold {fold_idx + 1} complete in {fold_time:.1f}s | Acc: {metrics['Accuracy']:.2%} | AUC: {metrics['ROC-AUC']:.4f}")
@@ -497,22 +542,20 @@ def run_experiment(
         # Final CV Visualization Summary
         logger.header("📊 GENERATING CROSS-VALIDATION SUMMARY")
         dname = fasta_path.split('/')[-2]
-        plot_cv_roc_pr_curves(cv_results, title=f"{n_splits}-Fold CV ({dname})", prefix=f"{dname.lower()}_cv")
-        plot_cv_metric_distribution(fold_metrics_list, prefix=f"{dname.lower()}_cv")
-        generate_latex_table(fold_metrics_list, method_name=f"HybridStack-PPI ({dname})")
-
-        return metrics
-        
         try:
-            plot_cv_metric_distribution(
-                fold_metrics_list,
-                save_dir='results/plots',
-                title=f'{n_splits}-Fold CV'
-            )
+            plot_cv_roc_pr_curves(cv_results, title=f"{n_splits}-Fold CV ({dname})", prefix=f"{dname.lower()}_cv")
+            plot_cv_metric_distribution(fold_metrics_list, prefix=f"{dname.lower()}_cv")
+            generate_latex_table(fold_metrics_list, method_name=f"HybridStack-PPI ({dname})")
         except Exception as exc:  # noqa: BLE001
-            logger.warning(f"Could not generate CV metric distribution: {exc}")
+            logger.warning(f"Could not generate CV summary plots: {exc}")
+
+        # Compute average results
+        avg_results = pd.DataFrame(fold_metrics_list).mean().to_dict()
         
-        return pd.DataFrame(fold_metrics_list).mean().to_dict()
+        # Return detailed results if requested
+        if return_details:
+            return avg_results, fold_details
+        return avg_results
 
     logger.warning("Running simple Train/Test split (Random). Be careful of Data Leakage!")
     X_train, X_test, y_train, y_test = train_test_split(
@@ -539,6 +582,7 @@ def run_ablation_study(
     esm_model_name: str,
     n_splits: int = 5,
     n_jobs: int = -1,
+    cluster_path: str | None = None,
 ):
     """
     Wrapper to run all ablation experiments.
@@ -571,6 +615,7 @@ def run_ablation_study(
     res1 = run_experiment(
         fasta_path, pairs_path, h5_cache_path, model_factory_1,
         n_splits=n_splits, n_jobs=n_jobs, esm_model_name=esm_model_name, pairing_strategy="concat",
+        cluster_path=cluster_path,
     )
     res1["Model"] = "1. Interp → LR (Baseline)"
     all_results.append(res1)
@@ -581,6 +626,7 @@ def run_ablation_study(
     res2 = run_experiment(
         fasta_path, pairs_path, h5_cache_path, model_factory_2,
         n_splits=n_splits, n_jobs=n_jobs, esm_model_name=esm_model_name, pairing_strategy="concat",
+        cluster_path=cluster_path,
     )
     res2["Model"] = "2. Interp → Selector+Stacking → LR"
     all_results.append(res2)
@@ -594,6 +640,7 @@ def run_ablation_study(
     res3 = run_experiment(
         fasta_path, pairs_path, h5_cache_path, model_factory_3,
         n_splits=n_splits, n_jobs=n_jobs, esm_model_name=esm_model_name, pairing_strategy="concat",
+        cluster_path=cluster_path,
     )
     res3["Model"] = "3. Embed → LR (Baseline)"
     all_results.append(res3)
@@ -604,6 +651,7 @@ def run_ablation_study(
     res4 = run_experiment(
         fasta_path, pairs_path, h5_cache_path, model_factory_4,
         n_splits=n_splits, n_jobs=n_jobs, esm_model_name=esm_model_name, pairing_strategy="concat",
+        cluster_path=cluster_path,
     )
     res4["Model"] = "4. Embed → Selector+Stacking → LR"
     all_results.append(res4)
@@ -617,6 +665,7 @@ def run_ablation_study(
     res5 = run_experiment(
         fasta_path, pairs_path, h5_cache_path, model_factory_5,
         n_splits=n_splits, n_jobs=n_jobs, esm_model_name=esm_model_name, pairing_strategy="concat",
+        cluster_path=cluster_path,
     )
     res5["Model"] = "5. ESM2-Global → LR (Baseline)"
     all_results.append(res5)
@@ -627,6 +676,7 @@ def run_ablation_study(
     res6 = run_experiment(
         fasta_path, pairs_path, h5_cache_path, model_factory_6,
         n_splits=n_splits, n_jobs=n_jobs, esm_model_name=esm_model_name, pairing_strategy="concat",
+        cluster_path=cluster_path,
     )
     res6["Model"] = "6. ESM2-Global → Selector+Stacking → LR"
     all_results.append(res6)
@@ -640,6 +690,7 @@ def run_ablation_study(
     res7 = run_experiment(
         fasta_path, pairs_path, h5_cache_path, model_factory_7,
         n_splits=n_splits, n_jobs=n_jobs, esm_model_name=esm_model_name, pairing_strategy="concat",
+        cluster_path=cluster_path,
     )
     res7["Model"] = "7. Hybrid (Interp+Embed) → Stacking → LR"
     all_results.append(res7)

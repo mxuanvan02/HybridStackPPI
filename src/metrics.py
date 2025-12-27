@@ -731,36 +731,126 @@ def plot_decision_power(contributions: dict, dataset_name: str = "HUMAN", save_d
     print(f"   ✅ Saved decision power plots to {save_dir}/{name}")
 
 
-def generate_latex_table(all_metrics: list, method_name: str = "HybridStack-PPI"):
+def generate_latex_table(
+    all_metrics: list, 
+    method_name: str = "HybridStack-PPI",
+    dataset_name: str = "Dataset",
+    save_path: str = None
+) -> str:
     """
-    Generate a LaTeX table row for the results.
+    Generate a publication-quality LaTeX table with detailed per-fold results.
+    
+    Args:
+        all_metrics: List of dicts, one per fold, with keys like 'Accuracy', 'Precision', etc.
+        method_name: Name of the method for caption
+        dataset_name: Name of dataset for caption
+        save_path: Optional path to save the .tex file
+        
+    Returns:
+        Complete LaTeX table as string
     """
     df = pd.DataFrame(all_metrics)
-    stats = {}
-    for col in df.columns:
-        if np.issubdtype(df[col].dtype, np.number):
-            mean = df[col].mean() * 100
-            std = df[col].std() * 100
-            stats[col] = f"${mean:.2f} \\pm {std:.2f}$"
+    n_folds = len(df)
     
-    # Map our internal keys to the table columns
-    # Accuracy, Precision, Recall, Specificity, F1, MCC
-    row = [
-        method_name,
-        stats.get('Accuracy', 'N/A'),
-        stats.get('Precision', 'N/A'),
-        stats.get('Recall (Sensitivity)', 'N/A'),
-        stats.get('Specificity', 'N/A'),
-        stats.get('F1 Score', 'N/A'),
-        stats.get('MCC', 'N/A')
+    # Map internal metric keys to display names
+    metric_map = {
+        'Accuracy': 'Accuracy',
+        'Precision': 'Precision',
+        'Recall (Sensitivity)': 'Sensitivity',
+        'Recall': 'Sensitivity',
+        'F1 Score': 'F1-Score',
+        'F1-Score': 'F1-Score',
+        'Specificity': 'Specificity',
+        'MCC': 'MCC',
+        'ROC-AUC': 'ROC-AUC',
+        'PR-AUC': 'PR-AUC',
+    }
+    
+    # Columns in order
+    columns = ['Accuracy', 'Precision', 'Sensitivity', 'F1-Score', 'Specificity', 'MCC', 'ROC-AUC', 'PR-AUC']
+    
+    # Build header
+    header_cols = ' & '.join([f'\\textbf{{{col} (\\%)}}' for col in columns])
+    
+    lines = [
+        r'\begin{table}[ht]',
+        r'\centering',
+        f'\\caption{{Detailed {n_folds}-fold Cross-Validation Results on {dataset_name} Dataset ({method_name}).}}',
+        f'\\label{{tab:results_{dataset_name.lower().replace(" ", "_")}}}',
+        r'\resizebox{\textwidth}{!}{',
+        r'\begin{tabular}{l' + 'c' * len(columns) + '}',
+        r'\toprule',
+        f'\\textbf{{Fold}} & {header_cols} \\\\',
+        r'\midrule',
     ]
     
-    latex_row = " & ".join([f"\\mathbf{{{x}}}" if "pm" in x else x for x in row]) + " \\\\"
-    print("\n📝 LaTeX Table Row:")
-    print("-" * 50)
-    print(latex_row)
-    print("-" * 50)
-    return latex_row
+    # Add per-fold rows
+    fold_values = {col: [] for col in columns}
+    
+    for i, row in df.iterrows():
+        fold_data = [f'Fold {i + 1}']
+        for col in columns:
+            # Find matching key in row
+            value = None
+            for key, display in metric_map.items():
+                if display == col and key in row:
+                    value = row[key]
+                    break
+            
+            if value is None:
+                # Try direct column name
+                if col in row:
+                    value = row[col]
+                elif col.replace('-', ' ') in row:
+                    value = row[col.replace('-', ' ')]
+            
+            if value is not None:
+                val_pct = value * 100 if value <= 1 else value
+                fold_data.append(f'${val_pct:.2f}$')
+                fold_values[col].append(val_pct)
+            else:
+                fold_data.append('--')
+                fold_values[col].append(0)
+        
+        lines.append(' & '.join(fold_data) + ' \\\\')
+    
+    # Add mean row
+    lines.append(r'\midrule')
+    mean_data = [r'\textbf{Mean}']
+    for col in columns:
+        vals = fold_values[col]
+        if vals:
+            mean_val = np.mean(vals)
+            std_val = np.std(vals)
+            mean_data.append(f'$\\mathbf{{{mean_val:.2f}\\pm{std_val:.2f}}}$')
+        else:
+            mean_data.append('--')
+    lines.append(' & '.join(mean_data) + ' \\\\')
+    
+    # Close table
+    lines.extend([
+        r'\bottomrule',
+        r'\end{tabular}',
+        r'}',
+        r'\end{table}',
+    ])
+    
+    latex_table = '\n'.join(lines)
+    
+    # Print summary
+    print("\n📝 LaTeX Table Generated:")
+    print("-" * 60)
+    print(latex_table)
+    print("-" * 60)
+    
+    # Save if path provided
+    if save_path:
+        with open(save_path, 'w') as f:
+            f.write(latex_table)
+        print(f"  ✅ Saved to: {save_path}")
+    
+    return latex_table
+
 
 
 __all__ = [

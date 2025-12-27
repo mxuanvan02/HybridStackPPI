@@ -14,7 +14,12 @@
 !README.md
 !.gitignore
 !LICENSE
+!CITATION.cff
 !reproduce_results.py
+
+# --- 3b. ALLOW SOURCE CODE ---
+!src/**/*.py
+!src/__init__.py
 
 # --- 4. EXPLICITLY IGNORE JUNK INSIDE ALLOWED FOLDERS ---
 # Even inside allowed folders, we don't want these:

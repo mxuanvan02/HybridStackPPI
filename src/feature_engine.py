@@ -1,5 +1,7 @@
 import io
+import os
 import re
+import time
 from collections import Counter
 from typing import Dict, List
 
@@ -304,11 +306,13 @@ class FeatureEngine:
 
     ELM_MOTIFS_URL = "http://elm.eu.org/elms/elms_index.tsv"
 
-    def __init__(self, h5_cache_path: str, embedding_computer: EmbeddingComputer):
+    def __init__(self, h5_cache_path: str, embedding_computer: EmbeddingComputer, readonly_cache_paths: List[str] | None = None):
         print("Initializing Sequence-Only Hybrid Feature Engine...")
 
         self.handcraft_extractor = InterpretableFeatureExtractor()
         self.embedding_cache_path = h5_cache_path
+        self.readonly_cache_paths = readonly_cache_paths or []
+        self._fallback_handles = {}  # Map path -> h5py.File handle
         self.embedding_computer = embedding_computer
         self.embedding_dim = self.embedding_computer.embedding_dim
 
@@ -354,9 +358,36 @@ class FeatureEngine:
         matrix_key = f"{seq_upper}_matrix_v2"
         global_key = f"{seq_upper}_global_v2"
 
+        # 1. Check primary cache
         if matrix_key in h5f and global_key in h5f:
             return h5f[matrix_key][:], h5f[global_key][:]
 
+        # 2. Check readonly fallback caches
+        for fallback_path in self.readonly_cache_paths:
+            if not os.path.exists(fallback_path):
+                continue
+            
+            # Use cached handle if available
+            if fallback_path not in self._fallback_handles:
+                try:
+                    self._fallback_handles[fallback_path] = h5py.File(fallback_path, "r")
+                except Exception as exc:
+                    print(f"Warning: Could not open fallback cache {fallback_path}: {exc}")
+                    continue
+            
+            f_back = self._fallback_handles[fallback_path]
+            try:
+                if matrix_key in f_back and global_key in f_back:
+                    mat, glob = f_back[matrix_key][:], f_back[global_key][:]
+                    # Copy to primary cache for future speed
+                    h5f.create_dataset(matrix_key, data=mat)
+                    h5f.create_dataset(global_key, data=glob)
+                    return mat, glob
+            except Exception:
+                # Handle cases where file might have been closed or corrupted
+                continue
+
+        # 3. Compute if not found
         if self.embedding_computer:
             matrix, global_vec = self.embedding_computer.compute_full_embeddings(sequence)
             h5f.create_dataset(matrix_key, data=matrix)
@@ -435,3 +466,14 @@ class FeatureEngine:
 
         all_names = handcraft_names + self.motif_names + self.global_emb_names + self.local_emb_names
         return all_names
+    def close(self):
+        """Close all open fallback cache handles."""
+        for path, handle in self._fallback_handles.items():
+            try:
+                handle.close()
+            except Exception:
+                pass
+        self._fallback_handles = {}
+
+    def __del__(self):
+        self.close()

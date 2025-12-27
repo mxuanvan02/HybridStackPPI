@@ -24,14 +24,16 @@ def main():
     if args.dataset in ["yeast", "both"]:
         datasets.append({
             "name": "Yeast BioGrid (CD-HIT 40%)",
-            "fasta": str(PROJECT_ROOT / "data/BioGrid/Yeast/CDHIT_Reduced/yeast_clean.fasta"),
-            "pairs": str(PROJECT_ROOT / "data/BioGrid/Yeast/CDHIT_Reduced/yeast_clean_pairs.tsv")
+            "fasta": str(PROJECT_ROOT / "data/BioGrid/Yeast/yeast_dict.fasta"),
+            "pairs": str(PROJECT_ROOT / "data/BioGrid/Yeast/yeast_pairs.tsv"),
+            "cluster": str(PROJECT_ROOT / "cache/yeast_cluster_map.csv")
         })
     if args.dataset in ["human", "both"]:
         datasets.append({
             "name": "Human BioGrid (CD-HIT 40%)",
-            "fasta": str(PROJECT_ROOT / "data/BioGrid/Human/CDHIT_Reduced/human_clean.fasta"),
-            "pairs": str(PROJECT_ROOT / "data/BioGrid/Human/CDHIT_Reduced/human_clean_pairs.tsv")
+            "fasta": str(PROJECT_ROOT / "data/BioGrid/Human/human_dict.fasta"),
+            "pairs": str(PROJECT_ROOT / "data/BioGrid/Human/human_pairs.tsv"),
+            "cluster": str(PROJECT_ROOT / "cache/human_cluster_map.csv")
         })
 
     for ds in datasets:
@@ -45,7 +47,8 @@ def main():
             h5_cache_path=args.h5_cache,
             esm_model_name=args.esm_model,
             n_splits=args.n_splits,
-            n_jobs=args.n_jobs
+            n_jobs=args.n_jobs,
+            cluster_path=ds['cluster']
         )
         
         # Save results to CSV
