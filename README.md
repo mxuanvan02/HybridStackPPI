@@ -64,8 +64,10 @@ HybridStackPPI/
 │   ├── run_full_ablation.py  # Main ablation study
 │   ├── run.py              # Core experiment runner
 │   └── precompute_all.py   # Precompute features
-├── data/                   # Data files (BioGrid)
-├── cache/                  # Cached embeddings/features
+├── data/                   # Dataset files
+│   └── BioGrid/            # Original BioGrid (Human, Yeast)
+│       └── CDHIT_Reduced/  # CD-HIT 40% Cleaned Versions
+├── cache/                  # Feature matrices (local only)
 └── results/                # Output results and plots
 ```
 
