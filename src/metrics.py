@@ -43,9 +43,20 @@ def display_full_metrics(y_true, y_pred, y_proba, title: str = "📊 Evaluation 
         "F1 Score": f1_score(y_true, y_pred, zero_division=0),
         "Specificity": tn / (tn + fp) if (tn + fp) > 0 else 0.0,
         "MCC": matthews_corrcoef(y_true, y_pred),
-        "ROC-AUC": roc_auc_score(y_true, y_proba),
-        "PR-AUC": average_precision_score(y_true, y_proba),
     }
+    
+    # Robust ROC-AUC and PR-AUC calculation (handle single-class edge cases)
+    try:
+        metrics["ROC-AUC"] = roc_auc_score(y_true, y_proba)
+    except ValueError as e:
+        print(f"  ⚠️ ROC-AUC calculation failed (likely single class): {e}. Using 0.5")
+        metrics["ROC-AUC"] = 0.5
+    
+    try:
+        metrics["PR-AUC"] = average_precision_score(y_true, y_proba)
+    except ValueError as e:
+        print(f"  ⚠️ PR-AUC calculation failed: {e}. Using 0.5")
+        metrics["PR-AUC"] = 0.5
 
     metrics_df = pd.DataFrame(list(metrics.items()), columns=["Metric", "Score"])
     metrics_df["Formatted"] = metrics_df["Score"].apply(lambda x: f"{x*100:.2f}%")
@@ -412,14 +423,14 @@ def plot_cv_roc_pr_curves(cv_results: list, save_dir: str = "results/plots",  ti
         plot_cv_roc_pr_curves(cv_results)
     """
     import os
-    os.makedirs(save_dir, exist_ok=True)
-    
     # Set publication style
     sns.set_style("whitegrid")
-    plt.rcParams['font.family'] = 'DejaVu Sans'  # Fallback from Times New Roman
-    plt.rcParams['font.size'] = 12
+    plt.rcParams['font.family'] = 'DejaVu Sans'
+    plt.rcParams['font.size'] = 10  # Smaller font for legend compatibility
     
     n_folds = len(cv_results)
+    save_dir = save_dir if save_dir else "results/plots"
+    os.makedirs(save_dir, exist_ok=True)
     
     # ============================================================================
     # ROC CURVES
@@ -447,8 +458,8 @@ def plot_cv_roc_pr_curves(cv_results: list, save_dir: str = "results/plots",  ti
         tprs.append(interp_tpr)
         
         # Plot individual fold (light color)
-        ax_roc.plot(fpr, tpr, lw=1, alpha=0.3, color='steelblue',
-                   label=f'Fold {fold_idx} (AUC = {roc_auc:.3f})' if fold_idx == 1 else '')
+        ax_roc.plot(fpr, tpr, lw=1, alpha=0.4, color='steelblue',
+                   label=f'Fold {fold_idx} (AUC = {roc_auc:.4f})')
     
     # Compute mean and std
     mean_tpr = np.mean(tprs, axis=0)
@@ -470,16 +481,16 @@ def plot_cv_roc_pr_curves(cv_results: list, save_dir: str = "results/plots",  ti
     # Diagonal reference line
     ax_roc.plot([0, 1], [0, 1], 'k--', lw=2, label='Random Classifier')
     
-    ax_roc.set_xlim([-2, 102])
-    ax_roc.set_ylim([-2, 102])
-    ax_roc.set_xlabel('False Positive Rate (%)', fontsize=14, fontweight='bold')
-    ax_roc.set_ylabel('True Positive Rate (%)', fontsize=14, fontweight='bold')
-    ax_roc.set_title(f'{title}\nReceiver Operating Characteristic (ROC)', fontsize=16, fontweight='bold')
+    ax_roc.set_xlim([-0.01, 1.01])
+    ax_roc.set_ylim([-0.01, 1.01])
+    ax_roc.set_xlabel('False Positive Rate', fontsize=12, fontweight='bold')
+    ax_roc.set_ylabel('True Positive Rate', fontsize=12, fontweight='bold')
+    ax_roc.set_title(f'{title}\nROC Curves ({n_folds}-Fold CV)', fontsize=14, fontweight='bold')
     
-    # Update ticks to percentage
-    import matplotlib.ticker as mtick
-    ax_roc.xaxis.set_major_formatter(mtick.PercentFormatter(1.0))
-    ax_roc.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
+    # Force scalar formatter to avoid 10000% issues
+    from matplotlib.ticker import ScalarFormatter
+    ax_roc.xaxis.set_major_formatter(ScalarFormatter())
+    ax_roc.yaxis.set_major_formatter(ScalarFormatter())
     
     ax_roc.legend(loc='lower right', fontsize=10, framealpha=0.9)
     ax_roc.grid(True, alpha=0.3)
@@ -518,9 +529,9 @@ def plot_cv_roc_pr_curves(cv_results: list, save_dir: str = "results/plots",  ti
         interp_precision = np.interp(mean_recall, recall[::-1], precision[::-1])
         precisions.append(interp_precision)
         
-        # Plot individual fold
-        ax_pr.plot(recall, precision, lw=1, alpha=0.3, color='coral',
-                  label=f'Fold {fold_idx} (AP = {pr_auc:.3f})' if fold_idx == 1 else '')
+        # Plot individual fold (thin line)
+        ax_pr.plot(recall, precision, lw=0.8, alpha=0.3, color='coral',
+                  label=f'Fold {fold_idx} (AP={pr_auc:.4f})')
     
     # Compute mean and std
     mean_precision = np.mean(precisions, axis=0)
@@ -538,16 +549,16 @@ def plot_cv_roc_pr_curves(cv_results: list, save_dir: str = "results/plots",  ti
     ax_pr.fill_between(mean_recall, precision_lower, precision_upper, 
                        color='coral', alpha=0.2, label='± 1 std. dev.')
     
-    ax_pr.set_xlim([-2, 102])
-    ax_pr.set_ylim([-2, 102])
-    ax_pr.set_xlabel('Recall (%)', fontsize=14, fontweight='bold')
-    ax_pr.set_ylabel('Precision (%)', fontsize=14, fontweight='bold')
-    ax_pr.set_title(f'{title}\nPrecision-Recall Curve', fontsize=16, fontweight='bold')
+    ax_pr.set_xlim([-0.01, 1.01])
+    ax_pr.set_ylim([-0.01, 1.01])
+    ax_pr.set_xlabel('Recall', fontsize=12, fontweight='bold')
+    ax_pr.set_ylabel('Precision', fontsize=12, fontweight='bold')
+    ax_pr.set_title(f'{title}\nPrecision-Recall Curves ({n_folds}-Fold CV)', fontsize=14, fontweight='bold')
     
-    # Update ticks to percentage
-    import matplotlib.ticker as mtick
-    ax_pr.xaxis.set_major_formatter(mtick.PercentFormatter(1.0))
-    ax_pr.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
+    # Force scalar formatter
+    from matplotlib.ticker import ScalarFormatter
+    ax_pr.xaxis.set_major_formatter(ScalarFormatter())
+    ax_pr.yaxis.set_major_formatter(ScalarFormatter())
     
     ax_pr.legend(loc='lower left', fontsize=10, framealpha=0.9)
     ax_pr.grid(True, alpha=0.3)

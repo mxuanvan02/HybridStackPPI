@@ -71,7 +71,7 @@ def create_stacking_pipeline(
     stacking = StackingClassifier(
         estimators=[("interp_branch", interp_base), ("embed_branch", embed_base)],
         final_estimator=LogisticRegression(random_state=42, class_weight="balanced"),
-        cv=3,
+        cv=5,  # Align with outer CV to reduce internal leakage
         n_jobs=n_jobs
     )
     
@@ -92,7 +92,7 @@ def create_embed_only_stacking_pipeline(embed_cols: List[str], n_jobs: int = 1, 
     stacking = StackingClassifier(
         estimators=[("lgbm_s1", _make_branch(42)), ("lgbm_s2", _make_branch(123))],
         final_estimator=LogisticRegression(random_state=42, class_weight="balanced"),
-        cv=3,
+        cv=5,  # Align with outer CV to reduce internal leakage
         n_jobs=n_jobs
     )
     return Pipeline([("ensemble", stacking)])
@@ -175,4 +175,4 @@ def create_interp_only_stacking_pipeline(interp_cols: List[str], n_jobs: int = 1
             ("pre", ColumnTransformer([("trans", Pipeline(steps), interp_cols)], remainder="drop")),
             ("model", LGBMClassifier(n_estimators=500, learning_rate=0.05, num_leaves=20, random_state=seed, n_jobs=n_jobs, class_weight="balanced", verbose=-1))
         ])
-    return Pipeline([("ensemble", StackingClassifier(estimators=[("s1", _make_branch(42)), ("s2", _make_branch(123))], final_estimator=LogisticRegression(), cv=3, n_jobs=n_jobs))])
+    return Pipeline([("ensemble", StackingClassifier(estimators=[("s1", _make_branch(42)), ("s2", _make_branch(123))], final_estimator=LogisticRegression(), cv=5, n_jobs=n_jobs))])
