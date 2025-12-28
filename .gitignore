@@ -56,3 +56,9 @@ results/
 reports/
 benchmarks/
 *.lock
+legacy/
+
+# --- 7. EXCLUDE GENERATED DATASETS ---
+# Keeping only the raw BioGrid files
+**/CDHIT_Reduced/
+**/C3_Split/
