@@ -44,10 +44,10 @@ Standard random splitting in PPI prediction often leads to "homolog leakage," wh
 
 ## Benchmark Results (5-Fold C3 CV)
 
-| Dataset | Accuracy | Precision | Sensitivity | F1-Score | MCC | ROC-AUC |
-|---------|----------|-----------|-------------|----------|-----|---------|
-| **Yeast** | 99.82% | 99.84% | 99.84% | 99.84% | 99.64% | **99.99%** |
-| **Human** | 99.82% | 99.83% | 99.83% | 99.83% | 99.63% | **99.99%** |
+| Dataset | Accuracy | Precision | Sensitivity | F1-Score | MCC | ROC-AUC | PR-AUC |
+|---------|----------|-----------|-------------|----------|-----|---------|--------|
+| **Yeast** | 99.27% | 99.94% | 98.73% | 99.33% | 98.54% | 99.82% | 99.89% |
+| **Human** | 99.32% | 99.99% | 98.74% | 99.36% | 98.65% | 99.82% | 99.88% |
 
 *Note: Results achieved using ESM-2 650M and standardized C3 splits.*
 

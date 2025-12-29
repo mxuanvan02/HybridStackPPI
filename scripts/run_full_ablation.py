@@ -38,6 +38,9 @@ from src.builders import (
     create_stacking_pipeline,
     create_interp_only_stacking_pipeline,
     create_embed_only_stacking_pipeline,
+    create_interp_lr_pipeline,
+    create_embed_lr_pipeline,
+    create_esm_global_lr_pipeline,
     define_stacking_columns,
 )
 from src.feature_engine import EmbeddingComputer, FeatureEngine
@@ -126,10 +129,29 @@ def run_ablation_with_cache(
         'Global-LR (Baseline)': lambda: create_esm_global_lr_pipeline([c for c in embed_cols if 'Global' in c], n_jobs),
     }
     
-    # Step 6: Run ablation
-    all_results = []
+    # Step 6: Define Checkpoint Path
+    checkpoint_dir = PROJECT_ROOT / "results/ablation_checkpoints"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_path = checkpoint_dir / f"ablation_checkpoint_{dataset_name.lower()}.csv"
     
+    all_results = []
+    completed_variants = set()
+    
+    # Load existing results if they exist (Resume mechanism)
+    if checkpoint_path.exists():
+        try:
+            old_df = pd.read_csv(checkpoint_path)
+            all_results = old_df.to_dict('records')
+            completed_variants = set(old_df['Variant'].tolist())
+            print(f"  🔄 Found checkpoint: {len(completed_variants)} variants already completed. Resuming...")
+        except Exception as e:
+            print(f"  ⚠️ Could not read checkpoint: {e}")
+
     for variant_name, model_factory in variants.items():
+        if variant_name in completed_variants:
+            print(f"  ⏩ Skipping {variant_name} (Already in checkpoint)")
+            continue
+            
         logger.header(f"VARIANT: {variant_name}")
         
         variant_metrics = []
@@ -140,40 +162,45 @@ def run_ablation_with_cache(
             
             print(f"\n  📁 Fold {fold_idx + 1}/{n_splits}")
             
-            # Verify no leakage
-            verification = verify_split_integrity(
-                train_indices, val_indices, pairs_df, protein_to_cluster,
-                fold_id=fold_idx + 1, logger=logger
-            )
-            
-            if not verification['is_valid']:
-                raise RuntimeError(f"Data leakage in fold {fold_idx + 1}!")
-            
-            X_train = X_df.iloc[train_indices]
-            X_val = X_df.iloc[val_indices]
+            # Sub-Select features if needed
+            if 'Interp' in variant_name:
+                X_train = X_df.iloc[train_indices][interp_cols]
+                X_val = X_df.iloc[val_indices][interp_cols]
+            elif 'Global-LR' in variant_name:
+                global_cols = [c for c in embed_cols if 'Global' in c]
+                X_train = X_df.iloc[train_indices][global_cols]
+                X_val = X_df.iloc[val_indices][global_cols]
+            else:
+                X_train = X_df.iloc[train_indices][embed_cols]
+                X_val = X_df.iloc[val_indices][embed_cols]
+                
             y_train = y_s.iloc[train_indices]
             y_val = y_s.iloc[val_indices]
             
-            # Build and train
+            # Veriy no leakage
+            verify_split_integrity(
+                train_indices=train_indices,
+                val_indices=val_indices,
+                pairs_df=pairs_df,
+                protein_to_cluster=protein_to_cluster,
+                fold_id=fold_idx + 1,
+                logger=logger
+            )
+            
+            # Build and train model
+            print(f"  🚀 Training {variant_name}...")
             model = model_factory()
             model.fit(X_train, y_train)
             
             # Evaluate
-            y_pred = model.predict(X_val)
-            y_proba = model.predict_proba(X_val)[:, 1]
+            y_prob = model.predict_proba(X_val)[:, 1]
+            y_pred = (y_prob >= 0.5).astype(int)
+            fold_metrics = display_full_metrics(y_val, y_pred, y_prob)
+            variant_metrics.append(fold_metrics)
             
-            metrics = display_full_metrics(y_val, y_pred, y_proba, title=f"{variant_name} Fold {fold_idx + 1}")
-            variant_metrics.append(metrics)
+            print(f"  ⏱️ Fold complete in {time.time() - fold_start:.1f}s")
             
-            fold_time = time.time() - fold_start
-            print(f"  ⏱️ Fold complete in {fold_time:.1f}s")
-            
-            # Cleanup
-            del model, X_train, X_val
-            import gc
-            gc.collect()
-        
-        # Aggregate variant results
+        # Summary for variant
         metrics_df = pd.DataFrame(variant_metrics)
         mean_metrics = metrics_df.mean()
         std_metrics = metrics_df.std()
@@ -181,21 +208,28 @@ def run_ablation_with_cache(
         result_row = {
             'Variant': variant_name,
             'Accuracy': f"{mean_metrics['Accuracy']*100:.2f} ± {std_metrics['Accuracy']*100:.2f}",
+            'Precision': f"{mean_metrics['Precision']*100:.2f} ± {std_metrics['Precision']*100:.2f}",
+            'Recall': f"{mean_metrics['Recall (Sensitivity)']*100:.2f} ± {std_metrics['Recall (Sensitivity)']*100:.2f}",
+            'F1-Score': f"{mean_metrics['F1 Score']*100:.2f} ± {std_metrics['F1 Score']*100:.2f}",
+            'Specificity': f"{mean_metrics['Specificity']*100:.2f} ± {std_metrics['Specificity']*100:.2f}",
+            'MCC': f"{mean_metrics['MCC']*100:.2f} ± {std_metrics['MCC']*100:.2f}",
             'ROC-AUC': f"{mean_metrics['ROC-AUC']*100:.2f} ± {std_metrics['ROC-AUC']*100:.2f}",
             'PR-AUC': f"{mean_metrics['PR-AUC']*100:.2f} ± {std_metrics['PR-AUC']*100:.2f}",
-            'MCC': f"{mean_metrics['MCC']*100:.2f} ± {std_metrics['MCC']*100:.2f}",
         }
         all_results.append(result_row)
+        
+        # Save checkpoint after each variant
+        pd.DataFrame(all_results).to_csv(checkpoint_path, index=False)
         
         print(f"\n  📊 {variant_name} Summary:")
         print(f"     Accuracy: {mean_metrics['Accuracy']*100:.2f}% ± {std_metrics['Accuracy']*100:.2f}%")
         print(f"     ROC-AUC:  {mean_metrics['ROC-AUC']*100:.2f}% ± {std_metrics['ROC-AUC']*100:.2f}%")
     
-    # Save results
+    # Save final results in experiment folder
     results_df = pd.DataFrame(all_results)
     csv_path = output_dir / "ablation_results.csv"
     results_df.to_csv(csv_path, index=False)
-    print(f"\n✅ Results saved to: {csv_path}")
+    print(f"\n✅ Final results saved to: {csv_path}")
     
     # Print summary table
     logger.header("ABLATION STUDY SUMMARY")
