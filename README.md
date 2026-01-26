@@ -20,9 +20,7 @@ To ensure scientific rigor, the framework enforces a **Strict C3 Cluster-based C
 - 🧬 **Hybrid Architecture**: Dual-branch stacking: 2,020 interpretable features + 5,120 ESM-2 embeddings.
 - 🛡️ **Zero-Leakage (C3)**: Strict cluster-based splitting prevents homologous sequence contamination.
 - 📊 **Decision Power Analysis**: Quantifies the weighting of biological vs. deep learning branches.
-- 🎨 **Publication Figures**: Automatic generation of ROC/PR curves (with confidence bands), Calibration curves, t-SNE, and Detailed LaTeX tables.
-- ⚡ **Auto-Routing Pipeline**: Automatically resolves correct cluster and data paths for simplified execution.
-
+- 
 ---
 
 ## Architecture
