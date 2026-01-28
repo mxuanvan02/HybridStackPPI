@@ -281,37 +281,20 @@ def test_internal_cv_config():
 # =============================================================================
 def test_failsafe_trigger():
     """Test 4.1: Verify fail-safe raises error on missing cluster file."""
-    from scripts.run_cv import run_c3_cv
-    from pathlib import Path
+    from src.data_utils import load_cluster_map
 
-    fake_clstr = "/tmp/fake_cluster_file.clstr"
-    fake_cache = "/tmp/fake_cache.h5"
-    fake_pairs = "/tmp/fake_pairs.tsv"
+    fake_cluster_path = "/tmp/nonexistent_cluster_file_12345.csv"
 
     try:
-        run_c3_cv(
-            feature_cache=fake_cache,
-            pairs_path=fake_pairs,
-            clstr_path=fake_clstr,
-            dataset_name="Test",
-            output_dir=Path("/tmp/test_output"),
-        )
-        log_result(
-            "Fail-Safe Trigger (Missing File)",
-            False,
-            "Did NOT raise error on missing cluster!",
-        )
-    except FileNotFoundError as e:
-        if "CLUSTER FILE NOT FOUND" in str(e):
-            log_result(
-                "Fail-Safe Trigger (Missing File)",
-                True,
-                "Raised clear error with guidance",
-            )
-        else:
-            log_result("Fail-Safe Trigger (Missing File)", True, "Caught FileNotFoundError")
+        result = load_cluster_map(fake_cluster_path)
+        log_result("Fail-Safe Trigger (Missing File)", False,
+                  "Did NOT raise error - silent fallback risk!")
+    except FileNotFoundError:
+        log_result("Fail-Safe Trigger (Missing File)", True,
+                  "Caught expected FileNotFoundError")
     except Exception as e:
-        log_result("Fail-Safe Trigger (Missing File)", True, f"Caught {type(e).__name__}")
+        log_result("Fail-Safe Trigger (Missing File)", True,
+                  f"Caught {type(e).__name__}: {e}")
 
 
 def test_cv_script_failsafe():

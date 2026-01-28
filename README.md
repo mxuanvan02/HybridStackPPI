@@ -59,15 +59,27 @@ git clone https://github.com/mxuanvan02/HybridStackPPI.git
 cd HybridStackPPI
 conda create -n hybridstack python=3.10 -y && conda activate hybridstack
 pip install -r requirements.txt
+
+# Install CD-HIT (required for cluster-based cross-validation)
+# On Debian/Ubuntu:
+sudo apt-get update && sudo apt-get install -y cd-hit
 ```
 
-### 2. Run Single Cross-Validation
+### 2. Pre-computation
+Before running the cross-validation, you need to generate the feature cache.
+```bash
+# This will precompute features for the yeast dataset.
+# Note: This step can be time-consuming.
+python scripts/precompute_all.py --dataset yeast
+```
+
+### 3. Run Single Cross-Validation
 The pipeline automatically routes to the correct cluster files in `data/BioGrid/`.
 ```bash
 python scripts/run_cv.py --dataset yeast --n-splits 5 --n-jobs 1
 ```
 
-### 3. Run Full Ablation Study
+### 4. Run Full Ablation Study
 Analyzes sub-components (Interp-Only, Embed-Only, Logistic Baselines).
 ```bash
 python scripts/run_full_ablation.py --dataset both --n-splits 5 --n-jobs 1
