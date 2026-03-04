@@ -6,6 +6,7 @@ from .feature_engine import (
     InterpretableFeatureExtractor,
 )
 from .selectors import CumulativeFeatureSelector
+from .negative_sampler import NegativeSampler
 from .logger import PipelineLogger
 from .metrics import (
     display_full_metrics,
@@ -53,6 +54,7 @@ __all__ = [
     "FeatureEngine",
     "InterpretableFeatureExtractor",
     "CumulativeFeatureSelector",
+    "NegativeSampler",
     "PipelineLogger",
     "display_full_metrics",
     "plot_evaluation_results",
