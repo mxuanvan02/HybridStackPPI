@@ -189,7 +189,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--strategy",
-        choices=[*_ALL_STRATEGIES, "all"],
+        choices=[*_ALL_STRATEGIES, "negatome", "all"],
         default="same_compartment",
         help=(
             "Sampling strategy.  Strategies in order of difficulty: "

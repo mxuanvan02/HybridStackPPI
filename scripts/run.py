@@ -194,26 +194,54 @@ def run_experiment(
                 feature_engine = FeatureEngine(h5_cache_path, embedding_computer)
                 single_feature_names = feature_engine.get_feature_names()
 
-        def _load_or_build(cache_path, sequences, pairs_df, split_name: str):
+        def _load_or_build(cache_path, seqs, pairs_df_sub, split_name: str, full_pairs_path: str):
             if os.path.exists(cache_path):
                 logger.phase(f"Loading {split_name} Features from Cache")
                 X_df_cached, y_s_cached = load_feature_matrix_h5(cache_path)
-                if len(X_df_cached) == len(pairs_df):
+                if len(X_df_cached) == len(pairs_df_sub):
                     return X_df_cached, y_s_cached
                 logger.warning(
-                    f"{split_name} cache rows ({len(X_df_cached)}) do not match cleaned pairs ({len(pairs_df)}). "
+                    f"{split_name} cache rows ({len(X_df_cached)}) do not match cleaned pairs ({len(pairs_df_sub)}). "
                     "Recomputing to avoid duplicated pairs."
                 )
 
             logger.phase(f"{split_name} Cache NOT FOUND or stale. Running Extraction...")
             _ensure_feature_engine()
-            protein_features = feature_engine.extract_all_features(sequences)
-            X_df, y_s = create_feature_matrix(pairs_df, protein_features, single_feature_names, pairing_strategy)
+            
+            # --- CACHE RECOVERY LOGIC ---
+            protein_features = {}
+            if pairing_strategy == "concat" and ("_random" in full_pairs_path or "_same_compartment" in full_pairs_path or "_same_go" in full_pairs_path or "_negatome" in full_pairs_path):
+                from hybridstack.data_utils import extract_protein_features_from_pair_cache
+                old_pairs_path = full_pairs_path.replace("_random", "").replace("_same_compartment", "").replace("_same_go", "").replace("_negatome", "")
+                old_cache_path = get_cache_filename(old_pairs_path, pairing_strategy, esm_model_name, cache_version=cache_version)
+                
+                if os.path.exists(old_cache_path):
+                    logger.info(f"Attempting to recover protein features from {old_cache_path}...")
+                    protein_features = extract_protein_features_from_pair_cache(old_cache_path, old_pairs_path)
+            
+            if protein_features:
+                required_seqs = set(pairs_df_sub["protein1"]).union(set(pairs_df_sub["protein2"]))
+                missing_sequences = {seq_id: seq for seq_id, seq in seqs.items() if seq_id in required_seqs and seq_id not in protein_features}
+                if missing_sequences:
+                    logger.info(f"Computing features for {len(missing_sequences)} missing sequences...")
+                    computed_features = feature_engine.extract_all_features(missing_sequences)
+                    protein_features.update(computed_features)
+                else:
+                    logger.info("All required sequence features recovered from old cache.")
+            else:
+                required_seqs = set(pairs_df_sub["protein1"]).union(set(pairs_df_sub["protein2"]))
+                needed_seqs = {seq_id: seq for seq_id, seq in seqs.items() if seq_id in required_seqs}
+                logger.info(f"Computing features for all {len(needed_seqs)} needed sequences...")
+                protein_features = feature_engine.extract_all_features(needed_seqs)
+            
+            # --- END CACHE RECOVERY ---
+            
+            X_df, y_s = create_feature_matrix(pairs_df_sub, protein_features, single_feature_names, pairing_strategy)
             save_feature_matrix_h5(X_df, y_s, cache_path)
             return X_df, y_s
 
-        X_train, y_train = _load_or_build(train_cache_path, train_sequences, train_pairs_df, "TRAIN")
-        X_test, y_test = _load_or_build(test_cache_path, test_sequences, test_pairs_df, "TEST")
+        X_train, y_train = _load_or_build(train_cache_path, train_sequences, train_pairs_df, "TRAIN", pairs_path)
+        X_test, y_test = _load_or_build(test_cache_path, test_sequences, test_pairs_df, "TEST", test_pairs_path)
 
         logger.phase("Training Model")
         model_pipeline = model_factory(n_jobs=n_jobs)
@@ -266,7 +294,35 @@ def run_experiment(
     if need_recompute:
         logger.phase("Cache NOT FOUND or stale. Running Full Feature Extraction")
         _ensure_feature_engine()
-        protein_features = feature_engine.extract_all_features(sequences)
+        
+        # --- CACHE RECOVERY LOGIC ---
+        protein_features = {}
+        if pairing_strategy == "concat" and ("_random" in pairs_path or "_same_compartment" in pairs_path or "_same_go" in pairs_path or "_negatome" in pairs_path):
+            from hybridstack.data_utils import extract_protein_features_from_pair_cache
+            old_pairs_path = pairs_path.replace("_random", "").replace("_same_compartment", "").replace("_same_go", "").replace("_negatome", "")
+            old_cache_path = get_cache_filename(old_pairs_path, pairing_strategy, esm_model_name, cache_version=cache_version)
+            
+            if os.path.exists(old_cache_path):
+                logger.info(f"Attempting to recover protein features from {old_cache_path}...")
+                protein_features = extract_protein_features_from_pair_cache(old_cache_path, old_pairs_path)
+        
+        if protein_features:
+            required_seqs = set(pairs_df["protein1"]).union(set(pairs_df["protein2"]))
+            missing_sequences = {seq_id: seq for seq_id, seq in sequences.items() if seq_id in required_seqs and seq_id not in protein_features}
+            if missing_sequences:
+                logger.info(f"Computing features for {len(missing_sequences)} missing sequences...")
+                computed_features = feature_engine.extract_all_features(missing_sequences)
+                protein_features.update(computed_features)
+            else:
+                logger.info("All required sequence features recovered from old cache.")
+        else:
+            required_seqs = set(pairs_df["protein1"]).union(set(pairs_df["protein2"]))
+            needed_seqs = {seq_id: seq for seq_id, seq in sequences.items() if seq_id in required_seqs}
+            logger.info(f"Computing features for all {len(needed_seqs)} needed sequences...")
+            protein_features = feature_engine.extract_all_features(needed_seqs)
+        
+        # --- END CACHE RECOVERY ---
+        
         X_df, y_s = create_feature_matrix(pairs_df, protein_features, single_feature_names, pairing_strategy)
         save_feature_matrix_h5(X_df, y_s, cache_path)
 

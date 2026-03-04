@@ -30,52 +30,43 @@ def load_data(fasta_path: str, pairs_path: str):
 def canonicalize_pairs(pairs_df: pd.DataFrame, dataset_name: str = "Dataset", logger=None):
     """
     Sort protein1/protein2 alphabetically and drop duplicates to prevent data leakage.
-    
-    Args:
-        pairs_df: DataFrame with columns [protein1, protein2, label]
-        dataset_name: Name of dataset for logging
-        logger: Optional PipelineLogger instance
-        
-    Returns:
-        Canonicalized DataFrame with duplicates removed
+    Optimized version to handle large numbers of duplicates efficiently.
     """
     if logger:
         logger.phase(f"Canonicalizing pairs for {dataset_name}")
     
-    # Sort protein IDs so that protein1 <= protein2 alphabetically
+    # 1. Sort protein IDs so that protein1 <= protein2 alphabetically
     pairs_canonical = pairs_df.copy()
     swap_mask = pairs_canonical["protein1"] > pairs_canonical["protein2"]
-    pairs_canonical.loc[swap_mask, ["protein1", "protein2"]] = pairs_canonical.loc[swap_mask, ["protein2", "protein1"]].values
+    if swap_mask.any():
+        pairs_canonical.loc[swap_mask, ["protein1", "protein2"]] = pairs_canonical.loc[swap_mask, ["protein2", "protein1"]].values
     
-    # Find duplicates before dropping
-    duplicates = pairs_canonical.duplicated(subset=["protein1", "protein2"], keep="first")
-    n_duplicates = duplicates.sum()
-    
-    if n_duplicates > 0 and logger:
-        logger.warning(f"Found {n_duplicates} duplicate pairs in {dataset_name} (will keep first occurrence)")
+    # 2. Check for duplicates and conflicting labels efficiently using groupby
+    # We group by protein pairs and check if there's more than one unique label for a pair
+    if logger:
+        n_total = len(pairs_df)
+        # Drop duplicates based on the pair and label first to count true conflicts
+        unique_labeled_pairs = pairs_canonical.drop_duplicates(subset=["protein1", "protein2", "label"])
         
-        # Check for conflicting labels
-        dup_indices = pairs_canonical[duplicates].index
-        for idx in dup_indices:
-            dup_row = pairs_canonical.loc[idx]
-            first_occurrence = pairs_canonical[
-                (pairs_canonical["protein1"] == dup_row["protein1"]) & 
-                (pairs_canonical["protein2"] == dup_row["protein2"])
-            ].iloc[0]
+        # Now find pairs that still have multiple rows (meaning they have different labels)
+        conflicts = unique_labeled_pairs.duplicated(subset=["protein1", "protein2"], keep=False)
+        n_conflicts = conflicts.sum() // 2  # Each conflict pair appears twice in this mask
+        
+        if n_conflicts > 0:
+            logger.warning(f"Found {n_conflicts} pairs with CONFLICTING labels in {dataset_name}. "
+                           "Will default to the first occurrence's label.")
             
-            if first_occurrence["label"] != dup_row["label"]:
-                if logger:
-                    logger.warning(
-                        f"Conflicting labels for pair ({dup_row['protein1']}, {dup_row['protein2']}): "
-                        f"keeping label={first_occurrence['label']}, dropping label={dup_row['label']}"
-                    )
-    
-    # Drop duplicates
+        # Count all duplicates (including same-labeled ones)
+        n_dups = n_total - unique_labeled_pairs.shape[0] + (unique_labeled_pairs.duplicated(subset=["protein1", "protein2"]).sum())
+        if n_dups > 0:
+            logger.warning(f"Found {n_dups} total duplicate entries in {dataset_name}.")
+
+    # 3. Drop duplicates, keeping the first occurrence
     pairs_clean = pairs_canonical.drop_duplicates(subset=["protein1", "protein2"], keep="first").copy()
     pairs_clean.reset_index(drop=True, inplace=True)
     
     if logger:
-        logger.info(f"{dataset_name}: {len(pairs_df)} → {len(pairs_clean)} pairs after deduplication")
+        logger.info(f"{dataset_name}: {len(pairs_df)} → {len(pairs_clean)} unique pairs")
     
     return pairs_clean
 
@@ -182,6 +173,47 @@ def load_feature_matrix_h5(file_path: str) -> tuple[pd.DataFrame, pd.Series]:
         y = pd.Series(y_data, index=y_index, name=y_name)
     print(f"  [Cache] Load complete. X={X.shape}, y={y.shape}")
     return X, y
+
+def extract_protein_features_from_pair_cache(pair_cache_path: str, old_pairs_path: str) -> dict:
+    """
+    Extract individual protein features from an old pair-level cache matrix.
+    This bypasses recomputing 5 hours of Handcraft + Motif + ESM2 features.
+    """
+    print(f"  [Cache Recovery] Recovering individual protein features from old pair cache: {pair_cache_path}")
+    if not os.path.exists(pair_cache_path):
+        print("  [Cache Recovery] ERROR: Old cache not found. Recomputation will be needed.")
+        return {}
+
+    # Load canonical old pairs to align with the cache rows
+    pairs_df = pd.read_csv(old_pairs_path, sep="\t", header=None, names=["protein1", "protein2", "label"])
+    pairs_clean = canonicalize_pairs(pairs_df, dataset_name="Old Pairs", logger=None)
+    
+    # Load old cache
+    X_df, _ = load_feature_matrix_h5(pair_cache_path)
+    
+    if len(X_df) != len(pairs_clean):
+        print(f"  [Cache Recovery] WARNING: Cache rows ({len(X_df)}) do not match clean old pairs ({len(pairs_clean)}).")
+    
+    # Extract
+    protein_features = {}
+    half_cols = X_df.shape[1] // 2
+    
+    X_mat = X_df.values
+    p1_array = pairs_clean["protein1"].values
+    p2_array = pairs_clean["protein2"].values
+    
+    for i in range(min(len(X_mat), len(pairs_clean))):
+        p1 = p1_array[i]
+        p2 = p2_array[i]
+        
+        if p1 not in protein_features:
+            protein_features[p1] = X_mat[i, :half_cols]
+        if p2 not in protein_features:
+            protein_features[p2] = X_mat[i, half_cols:]
+            
+    print(f"  [Cache Recovery] Successfully recovered features for {len(protein_features)} unique proteins.")
+    return protein_features
+
 
 
 def split_pairs_no_overlap(pairs_df: pd.DataFrame, test_size: float = 0.2, random_state: int = 42):

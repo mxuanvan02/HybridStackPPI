@@ -25,7 +25,7 @@ import pandas as pd
 import torch
 
 # Add project root to path
-PROJECT_ROOT = Path(__file__).parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 
@@ -106,8 +106,22 @@ def main():
         default=None,
         help="Path to CD-HIT cluster map (e.g., data/BioGrid/Human/human_clusters.json). Required if split-strategy is 'cluster'."
     )
+    parser.add_argument(
+        "--strategy",
+        choices=["default", "random", "same_compartment", "same_go", "negatome"],
+        default="default",
+        help="Negative sampling strategy to evaluate (default: standard BioGrid pairs)"
+    )
     
     args = parser.parse_args()
+    
+    # Map strategy to file suffix
+    strategy_suffix = {
+        "random": "_random",
+        "same_compartment": "_same_compartment",
+        "same_go": "_same_go",
+        "negatome": "_negatome"
+    }
     
     # Set random seed FIRST for reproducibility
     set_seed(args.seed)
@@ -121,6 +135,7 @@ def main():
     print("HybridStack-PPI: Reproducing Paper Results")
     print("=" * 70)
     print(f"\nRandom Seed: {args.seed}")
+    print(f"Strategy: {args.strategy.upper()}")
     print(f"Device: {'CUDA' if torch.cuda.is_available() else 'CPU'}")
     print(f"PyTorch version: {torch.__version__}")
     
@@ -129,17 +144,19 @@ def main():
     
     # Dataset configurations
     datasets = []
+    suffix = strategy_suffix.get(args.strategy, "")
+    
     if args.dataset in ["human", "both"]:
         datasets.append({
-            "name": "Human BioGRID",
+            "name": f"Human BioGRID ({args.strategy})",
             "fasta": str(PROJECT_ROOT / "data/BioGrid/Human/human_dict.fasta"),
-            "pairs": str(PROJECT_ROOT / "data/BioGrid/Human/human_pairs.tsv"),
+            "pairs": str(PROJECT_ROOT / f"data/BioGrid/Human/human_pairs{suffix}.tsv"),
         })
     if args.dataset in ["yeast", "both"]:
         datasets.append({
-            "name": "Yeast BioGRID",
+            "name": f"Yeast BioGRID ({args.strategy})",
             "fasta": str(PROJECT_ROOT / "data/BioGrid/Yeast/yeast_dict.fasta"),
-            "pairs": str(PROJECT_ROOT / "data/BioGrid/Yeast/yeast_pairs.tsv"),
+            "pairs": str(PROJECT_ROOT / f"data/BioGrid/Yeast/yeast_pairs{suffix}.tsv"),
         })
     
     all_results = {}
