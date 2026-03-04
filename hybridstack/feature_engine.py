@@ -1,4 +1,5 @@
 import io
+import os
 import re
 from collections import Counter
 from typing import Dict, List
@@ -303,6 +304,7 @@ class FeatureEngine:
     """
 
     ELM_MOTIFS_URL = "http://elm.eu.org/elms/elms_index.tsv"
+    ELM_CACHE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "elm_motifs_freeze.tsv")
 
     def __init__(self, h5_cache_path: str, embedding_computer: EmbeddingComputer):
         print("Initializing Sequence-Only Hybrid Feature Engine...")
@@ -314,20 +316,28 @@ class FeatureEngine:
 
         self.motifs: Dict[str, re.Pattern] = {}
         self.motif_names: List[str] = []
-        self._load_elm_motifs_from_api()
+        self._load_elm_motifs()
 
         self.global_emb_names = [f"Global_ESM_{i}" for i in range(self.embedding_dim)]
         self.local_emb_names = [f"Local_Motif_ESM_{i}" for i in range(self.embedding_dim)]
 
         print("Feature Engine ready.")
 
-    def _load_elm_motifs_from_api(self):
-        print(f"Fetching and compiling ELM motifs from API: {self.ELM_MOTIFS_URL}...")
+    def _load_elm_motifs(self):
         try:
-            response = requests.get(self.ELM_MOTIFS_URL)
-            response.raise_for_status()
-            text_stream = io.StringIO(response.text)
-            df = pd.read_csv(text_stream, sep="\t", comment="#")
+            if os.path.exists(self.ELM_CACHE_PATH):
+                print(f"Loading ELM motifs from reproducible local cache: {self.ELM_CACHE_PATH}...")
+                df = pd.read_csv(self.ELM_CACHE_PATH, sep="\t", comment="#")
+            else:
+                print(f"Fetching ELM motifs from API to create freeze file: {self.ELM_MOTIFS_URL}...")
+                response = requests.get(self.ELM_MOTIFS_URL, timeout=30)
+                response.raise_for_status()
+                
+                os.makedirs(os.path.dirname(self.ELM_CACHE_PATH), exist_ok=True)
+                with open(self.ELM_CACHE_PATH, "w") as f:
+                    f.write(response.text)
+                
+                df = pd.read_csv(io.StringIO(response.text), sep="\t", comment="#")
 
             df = df.dropna(subset=["Regex"])
             for _, row in df.iterrows():
@@ -381,7 +391,8 @@ class FeatureEngine:
             matches = list(pattern.finditer(sequence))
             if matches:
                 motif_binary_vector.append(1)
-                # Collect embeddings from ALL matched regions, then apply max pooling
+                # Collect embeddings from ALL matched regions, then apply mean pooling
+                # Reviewer 2: Max pooling discards weaker but biologically relevant signals
                 for match in matches:
                     start, end = match.span()
                     start = min(start, embedding_matrix.shape[0] - 1)
@@ -389,14 +400,22 @@ class FeatureEngine:
                     if start < end:
                         motif_embs = embedding_matrix[start:end]
                         if motif_embs.shape[0] > 0:
-                            local_embedding_vectors.append(motif_embs.max(axis=0))
+                            local_embedding_vectors.append(motif_embs.mean(axis=0))
             else:
                 motif_binary_vector.append(0)
 
         if local_embedding_vectors:
+            # Local motif chunks are already mean-pooled above.
             final_local_embedding = np.max(local_embedding_vectors, axis=0)
         else:
-            final_local_embedding = np.zeros(self.embedding_dim, dtype=np.float32)
+            # This preserves sequence context instead of oversimplifying with a zero vector.
+            length = embedding_matrix.shape[0]
+            start_idx = length // 4
+            end_idx = length - start_idx
+            if start_idx < end_idx:
+                final_local_embedding = embedding_matrix[start_idx:end_idx].mean(axis=0)
+            else:
+                final_local_embedding = embedding_matrix.mean(axis=0)
 
         return np.array(motif_binary_vector, dtype=np.float32), final_local_embedding
 

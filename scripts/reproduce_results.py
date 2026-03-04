@@ -93,6 +93,19 @@ def main():
         default=42,
         help="Random seed (default: 42)"
     )
+    parser.add_argument(
+        "--split-strategy",
+        type=str,
+        choices=["protein", "cluster"],
+        default="protein",
+        help="CV split strategy (protein=no overlap, cluster=CD-HIT family disjoint)"
+    )
+    parser.add_argument(
+        "--cluster-path",
+        type=str,
+        default=None,
+        help="Path to CD-HIT cluster map (e.g., data/BioGrid/Human/human_clusters.json). Required if split-strategy is 'cluster'."
+    )
     
     args = parser.parse_args()
     
@@ -171,6 +184,7 @@ def main():
                 esm_model_name=args.esm_model,
                 n_jobs=args.n_jobs,
                 cache_version=args.cache_version,
+                cluster_path=args.cluster_path if args.split_strategy == "cluster" else None,
             )
             
             elapsed = time.time() - start_time
