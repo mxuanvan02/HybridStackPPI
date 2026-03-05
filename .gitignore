@@ -51,3 +51,11 @@ results/
 reports/
 benchmarks/
 *.lock
+.agent
+LPBERT/
+deeptrio/
+rapppid/
+seq_ppi/
+xCAPT5/
+baseline_scripts/
+run_baselines.sh

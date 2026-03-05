@@ -25,7 +25,7 @@ def explain_global_shap(
     n_sample_explain: int = 5000,
 ):
     logger = PipelineLogger()
-    logger.header("🔍 SYSTEMATIC SHAP INTERPRETABILITY ANALYSIS (Reviewer 1 & 2) 🔍")
+    logger.header("🔍 SYSTEMATIC SHAP INTERPRETABILITY ANALYSIS 🔍")
 
     set_seed(42)
 
@@ -92,7 +92,7 @@ def explain_global_shap(
     shap.summary_plot(shap_values, X_trans_df, show=False)
     plt.title("Systematic SHAP Global Feature Importance (All Test Samples)")
     plt.tight_layout()
-    plt.savefig("results/plots/shap_global_summary_reviewer.png", dpi=300)
+    plt.savefig("results/plots/shap_global_summary.png", dpi=300)
     plt.close()
     
     # Tính tóan độ quan trọng theo Absolute Mean SHAP để xuất ra bảng
@@ -106,7 +106,7 @@ def explain_global_shap(
     print(shap_df.head(15).to_markdown(index=False))
     shap_df.to_csv("results/shap_global_importance.csv", index=False)
     
-    logger.success("✅ Saved Global SHAP summary to results/plots/shap_global_summary_reviewer.png")
+    logger.success("✅ Saved Global SHAP summary to results/plots/shap_global_summary.png")
     logger.success("✅ Saved importance CSV to results/shap_global_importance.csv")
 
 if __name__ == "__main__":

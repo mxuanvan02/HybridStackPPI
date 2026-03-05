@@ -108,7 +108,7 @@ def main():
     )
     parser.add_argument(
         "--strategy",
-        choices=["default", "random", "same_compartment", "same_go", "negatome"],
+        choices=["default", "random", "same_compartment", "diff_compartment", "same_go", "negatome"],
         default="default",
         help="Negative sampling strategy to evaluate (default: standard BioGrid pairs)"
     )

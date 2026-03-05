@@ -17,16 +17,10 @@ Usage examples
 python scripts/generate_negatives.py --dataset human --strategy random
 
 # Hard negatives: same subcellular compartment, not in BioGRID:
-python scripts/generate_negatives.py \\
-    --dataset human \\
-    --strategy same_compartment \\
+python scripts/generate_negatives.py \
+    --dataset human \
+    --strategy same_compartment \
     --annotation-cache data/annotations/uniprot_subcellular_human.tsv
-
-# Hardest: experimentally confirmed non-interactions (Negatome 2.0):
-python scripts/generate_negatives.py \\
-    --dataset human \\
-    --strategy negatome \\
-    --negatome-file data/annotations/negatome_human.tsv
 
 # Generate all strategies in sequence:
 python scripts/generate_negatives.py --dataset human --strategy all
@@ -39,8 +33,6 @@ For --dataset human, --strategy same_compartment:
 For --strategy all:
     data/BioGrid/Human/human_pairs_random.tsv
     data/BioGrid/Human/human_pairs_same_compartment.tsv
-    data/BioGrid/Human/human_pairs_same_go.tsv
-    data/BioGrid/Human/human_pairs_negatome.tsv
 
 Each output file is tab-separated (no header): protein1, protein2, label
 where label ∈ {0, 1}  (both positives AND generated negatives are included).
@@ -84,9 +76,8 @@ _DATASET_CONFIG = {
 }
 
 # Default order when --strategy all is requested.
-# 'random' first (fast, baseline); hard strategies follow.
-# Note: 'negatome' is excluded from 'all' because it requires a manual DB download.
-_ALL_STRATEGIES = ("random", "diff_compartment", "same_compartment", "same_go")
+# 'random' first (fast, baseline); then the hard 'same_compartment' strategy.
+_ALL_STRATEGIES = ("random", "same_compartment")
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -189,11 +180,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--strategy",
-        choices=[*_ALL_STRATEGIES, "negatome", "all"],
+        choices=[*_ALL_STRATEGIES, "all"],
         default="same_compartment",
         help=(
-            "Sampling strategy.  Strategies in order of difficulty: "
-            "random (easy) → same_compartment / same_go (hard) → negatome (hardest). "
+            "Sampling strategy. "
+            "random (easy) → same_compartment (hard, gold standard). "
             "'all' runs every strategy (default: same_compartment)."
         ),
     )
@@ -214,17 +205,7 @@ def parse_args() -> argparse.Namespace:
             "Path to pre-downloaded annotation TSV "
             "(protein_id <TAB> annotation_value).  When omitted, the script "
             "queries UniProt REST API live.  "
-            "Required for same_compartment / same_go strategies."
-        ),
-    )
-    parser.add_argument(
-        "--negatome-file",
-        type=str,
-        default=None,
-        help=(
-            "Path to a Negatome 2.0 TSV "
-            "(protein1 <TAB> protein2, no header, IDs matching the dataset). "
-            "Required for the negatome strategy."
+            "Required for same_compartment strategy."
         ),
     )
     parser.add_argument(
@@ -278,16 +259,12 @@ def main() -> None:
         # Resolve annotation cache: explicit flag > dataset default.
         if args.annotation_cache:
             ann_cache = args.annotation_cache
-        elif strategy in ("same_compartment", "diff_compartment"):
+        elif strategy == "same_compartment":
             ann_cache = str(PROJECT_ROOT / cfg["ann_subcel"])
-        elif strategy == "same_go":
-            ann_cache = str(PROJECT_ROOT / cfg["ann_go"])
         else:
-            ann_cache = ""  # unused for random / negatome
+            ann_cache = ""  # unused for random
 
-        negatome_file = args.negatome_file if hasattr(args, "negatome_file") else ""
-        if not negatome_file and strategy == "negatome":
-            negatome_file = str(PROJECT_ROOT / cfg["negatome"])
+        negatome_file = ""
 
         combined_df = _run_strategy(
             strategy=strategy,

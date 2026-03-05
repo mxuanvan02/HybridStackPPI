@@ -391,8 +391,7 @@ class FeatureEngine:
             matches = list(pattern.finditer(sequence))
             if matches:
                 motif_binary_vector.append(1)
-                # Collect embeddings from ALL matched regions, then apply mean pooling
-                # Reviewer 2: Max pooling discards weaker but biologically relevant signals
+                # Collect embeddings from ALL matched regions, then apply pooling
                 for match in matches:
                     start, end = match.span()
                     start = min(start, embedding_matrix.shape[0] - 1)
@@ -400,12 +399,12 @@ class FeatureEngine:
                     if start < end:
                         motif_embs = embedding_matrix[start:end]
                         if motif_embs.shape[0] > 0:
-                            local_embedding_vectors.append(motif_embs.mean(axis=0))
+                            local_embedding_vectors.append(motif_embs.max(axis=0))
             else:
                 motif_binary_vector.append(0)
 
         if local_embedding_vectors:
-            # Local motif chunks are already mean-pooled above.
+            # Local motif chunks are max-pooled above, and then max-pooled across occurrences.
             final_local_embedding = np.max(local_embedding_vectors, axis=0)
         else:
             # This preserves sequence context instead of oversimplifying with a zero vector.

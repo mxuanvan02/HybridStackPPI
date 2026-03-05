@@ -59,7 +59,7 @@ def create_stacking_pipeline(
 ) -> StackingClassifier:
     if use_selector:
         interp_preprocessor = CumulativeFeatureSelector(
-            importance_quantile=0.95, corr_threshold=0.97, variance_threshold=0.01, verbose=True
+            importance_quantile=0.97, corr_threshold=0.95, variance_threshold=0.01, verbose=True
         )
     else:
         interp_preprocessor = "passthrough"
@@ -70,7 +70,7 @@ def create_stacking_pipeline(
             (
                 "selector",
                 CumulativeFeatureSelector(
-                    importance_quantile=0.90, corr_threshold=0.98, variance_threshold=0.0, verbose=True
+                    importance_quantile=0.92, corr_threshold=0.85, variance_threshold=0.0, verbose=True
                 ),
             )
         )
@@ -113,11 +113,11 @@ def create_stacking_pipeline(
     stacking_model = StackingClassifier(
         estimators=[("interp", interp_base_estimator), ("embed", embed_base_estimator)],
         final_estimator=LogisticRegression(random_state=42, class_weight="balanced"),
-        cv=3,
+        cv=5,
         n_jobs=n_jobs,
         verbose=0,
     )
-    print(f"✅ Stacking (Selector={use_selector}) pipeline created (using *permissive* thresholds).")
+    print(f"✅ Stacking (Selector={use_selector}) pipeline created.")
     return stacking_model
 
 
@@ -265,7 +265,7 @@ def create_interp_only_pipeline(interp_cols: List[str], n_jobs: int = -1, use_se
             ("model", LGBMClassifier(**model_params, class_weight="balanced")),
         ]
     )
-    print("✅ Interp-Only pipeline (updated) created.")
+    print("✅ Interp-Only pipeline created.")
     return pipeline
 
 

@@ -47,7 +47,7 @@ def create_abla_pipeline_for_threshold(
 
 def main():
     parser = argparse.add_argument_group("Ablation Study")
-    parser = argparse.ArgumentParser(description="Threshold Ablation Study (Reviewer 2)")
+    parser = argparse.ArgumentParser(description="Threshold Ablation Study")
     parser.add_argument("--fasta", type=str, required=True, help="Path to input FASTA file")
     parser.add_argument("--pairs", type=str, required=True, help="Path to target pairs TSV file")
     parser.add_argument("--h5-cache", type=str, default="data/cache/features.h5")
@@ -58,7 +58,7 @@ def main():
     
     set_seed(42)
     logger = PipelineLogger()
-    logger.header("🚀 THRESHOLD RIGIDITY ABLATION STUDY (Reviewer 2) 🚀")
+    logger.header("🚀 THRESHOLD RIGIDITY ABLATION STUDY 🚀")
     
     sequences, pairs_df = load_data(args.fasta, args.pairs)
     pairs_df = canonicalize_pairs(pairs_df, dataset_name="Ablation", logger=logger)
