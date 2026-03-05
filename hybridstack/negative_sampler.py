@@ -121,7 +121,7 @@ class NegativeSampler:
         Required when strategy == 'negatome'.
     """
 
-    STRATEGIES = ("random", "same_compartment", "same_go", "negatome")
+    STRATEGIES = ("random", "diff_compartment", "same_compartment", "same_go", "negatome")
 
     def __init__(
         self,
@@ -192,7 +192,7 @@ class NegativeSampler:
         self._n_targets = self.n_negatives if self.n_negatives is not None else len(positives_df)
 
         # ── 4. Load annotations for annotation-based strategies ───────────────
-        if self.strategy in ("same_compartment", "same_go"):
+        if self.strategy in ("same_compartment", "diff_compartment", "same_go"):
             self._annotation = self._load_annotations()
 
         print(
@@ -224,6 +224,7 @@ class NegativeSampler:
 
         dispatch = {
             "random":           self._sample_random,
+            "diff_compartment": self._sample_diff_group,
             "same_compartment": self._sample_same_group,
             "same_go":          self._sample_same_group,
             "negatome":         self._sample_negatome,
@@ -395,6 +396,70 @@ class NegativeSampler:
         self._warn_if_short(len(accepted), total_attempts)
         return self._to_dataframe(accepted)
 
+    def _sample_diff_group(self) -> pd.DataFrame:
+        """
+        Samples negatives by pairing proteins from completely different groups 
+        (e.g. different subcellular compartments).
+        Implements Pan et al. (Psub) baseline dataset.
+        Maintains degree-preserving (harmonious) mapping.
+        """
+        if not self._annotation:
+            self._annotation = self._load_annotations()
+
+        annotated_expanded = []
+        group_assignments = []
+        
+        for p in self._universe:
+            g = self._annotation.get(p)
+            if g and g != "unknown":
+                weight = self._degrees.get(p, 0) + 1
+                annotated_expanded.extend([p] * weight)
+                group_assignments.extend([g] * weight)
+                
+        annotated_expanded = np.array(annotated_expanded, dtype=object)
+        group_assignments = np.array(group_assignments, dtype=object)
+        
+        n_expanded = len(annotated_expanded)
+        if n_expanded == 0:
+            print("[NegativeSampler] Failed to get annotations required for diff_compartment")
+            return pd.DataFrame(columns=["protein1", "protein2", "label"])
+
+        unique_groups = len(set(group_assignments))
+        print(f"[NegativeSampler] diff_compartment: {unique_groups} groups available.")
+
+        rng  = np.random.RandomState(self.random_state)
+        cap  = self._n_targets * self.max_attempts_multiplier
+        accepted: List[Tuple[str, str]] = []
+        total_attempts = 0
+
+        with tqdm(total=self._n_targets,
+                  desc=f"{self.strategy.upper()} negatives", unit="pair") as pbar:
+            while len(accepted) < self._n_targets and total_attempts < cap:
+                batch = min(_BATCH_SIZE, cap - total_attempts)
+
+                i_arr = rng.randint(0, n_expanded, size=batch)
+                j_arr = rng.randint(0, n_expanded, size=batch)
+
+                p1_arr = annotated_expanded[i_arr]
+                p2_arr = annotated_expanded[j_arr]
+                g1_arr = group_assignments[i_arr]
+                g2_arr = group_assignments[j_arr]
+
+                valid = g1_arr != g2_arr
+                p1_arr, p2_arr = p1_arr[valid], p2_arr[valid]
+                total_attempts += batch
+
+                for p1, p2 in zip(p1_arr, p2_arr):
+                    if len(accepted) >= self._n_targets:
+                        break
+                    key = _canonical_pair(p1, p2)
+                    if key not in self._positive_set:
+                        accepted.append(key)
+                        pbar.update(1)
+
+        self._warn_if_short(len(accepted), total_attempts)
+        return self._to_dataframe(accepted)
+
     def _sample_negatome(self) -> pd.DataFrame:
         """
         Strategy: NEGATOME (hardest)
@@ -489,6 +554,7 @@ class NegativeSampler:
         """
         field_map = {
             "same_compartment": "cc_scl_term",
+            "diff_compartment": "cc_scl_term",
             "same_go":          "go_p",
         }
         return_field = field_map[self.strategy]

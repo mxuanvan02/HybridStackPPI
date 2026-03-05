@@ -86,7 +86,7 @@ _DATASET_CONFIG = {
 # Default order when --strategy all is requested.
 # 'random' first (fast, baseline); hard strategies follow.
 # Note: 'negatome' is excluded from 'all' because it requires a manual DB download.
-_ALL_STRATEGIES = ("random", "same_compartment", "same_go")
+_ALL_STRATEGIES = ("random", "diff_compartment", "same_compartment", "same_go")
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -278,7 +278,7 @@ def main() -> None:
         # Resolve annotation cache: explicit flag > dataset default.
         if args.annotation_cache:
             ann_cache = args.annotation_cache
-        elif strategy == "same_compartment":
+        elif strategy in ("same_compartment", "diff_compartment"):
             ann_cache = str(PROJECT_ROOT / cfg["ann_subcel"])
         elif strategy == "same_go":
             ann_cache = str(PROJECT_ROOT / cfg["ann_go"])
