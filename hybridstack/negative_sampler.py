@@ -150,6 +150,7 @@ class NegativeSampler:
         # Set after fit():
         self._positive_set: Set[Tuple[str, str]] = set()
         self._universe: np.ndarray = np.array([], dtype=object)
+        self._degrees: Dict[str, int] = {}
         self._n_targets: int = 0
         # protein_id → annotation group label (compartment or GO term)
         self._annotation: Dict[str, str] = {}
@@ -178,11 +179,14 @@ class NegativeSampler:
         # numpy object-array → supports O(1) integer-array indexing in batch sampling
         self._universe = np.array(unique, dtype=object)
 
-        # ── 2. Build O(1) positive-pair lookup ────────────────────────────────
-        self._positive_set = {
-            _canonical_pair(row.protein1, row.protein2)
-            for row in positives_df.itertuples(index=False)
-        }
+        # ── 2. Build O(1) positive-pair lookup & Degree Map (Harmonious) ──────
+        degrees = {}
+        self._positive_set = set()
+        for row in positives_df.itertuples(index=False):
+            self._positive_set.add(_canonical_pair(row.protein1, row.protein2))
+            degrees[row.protein1] = degrees.get(row.protein1, 0) + 1
+            degrees[row.protein2] = degrees.get(row.protein2, 0) + 1
+        self._degrees = degrees
 
         # ── 3. Target count ────────────────────────────────────────────────────
         self._n_targets = self.n_negatives if self.n_negatives is not None else len(positives_df)
@@ -247,7 +251,14 @@ class NegativeSampler:
         each batch accepts almost every candidate.
         """
         rng  = np.random.RandomState(self.random_state)
-        n    = len(self._universe)
+        
+        # Build expanded universe based on harmonious degrees (degree + 1)
+        expanded_universe = []
+        for p in self._universe:
+            expanded_universe.extend([p] * (self._degrees.get(p, 0) + 1))
+        expanded_universe = np.array(expanded_universe, dtype=object)
+        n_expanded = len(expanded_universe)
+
         cap  = self._n_targets * self.max_attempts_multiplier
         accepted: List[Tuple[str, str]] = []
         total_attempts = 0
@@ -255,18 +266,21 @@ class NegativeSampler:
         with tqdm(total=self._n_targets, desc="RANDOM negatives", unit="pair") as pbar:
             while len(accepted) < self._n_targets and total_attempts < cap:
                 batch = min(_BATCH_SIZE, cap - total_attempts)
-                i_arr = rng.randint(0, n, size=batch)
-                j_arr = rng.randint(0, n, size=batch)
+                i_arr = rng.randint(0, n_expanded, size=batch)
+                j_arr = rng.randint(0, n_expanded, size=batch)
 
-                # Vectorized self-pair removal.
-                valid = i_arr != j_arr
-                i_arr, j_arr = i_arr[valid], j_arr[valid]
+                p1_arr = expanded_universe[i_arr]
+                p2_arr = expanded_universe[j_arr]
+
+                # Use boolean mask to discard identical protein selections
+                valid = p1_arr != p2_arr
+                p1_arr, p2_arr = p1_arr[valid], p2_arr[valid]
                 total_attempts += batch
 
-                for i, j in zip(i_arr, j_arr):
+                for p1, p2 in zip(p1_arr, p2_arr):
                     if len(accepted) >= self._n_targets:
                         break
-                    key = _canonical_pair(self._universe[i], self._universe[j])
+                    key = _canonical_pair(p1, p2)
                     if key not in self._positive_set:
                         accepted.append(key)
                         pbar.update(1)
@@ -318,9 +332,22 @@ class NegativeSampler:
 
         group_names  = list(groups.keys())
         n_groups     = len(group_names)
-        # Pre-convert to numpy for O(1) indexed access.
-        groups_np    = {g: np.array(m, dtype=object) for g, m in groups.items()}
-        group_sizes  = np.array([len(groups_np[g]) for g in group_names])
+        
+        # Expanded versions for harmonious (degree-preserving) sampling
+        groups_expanded_np = {}
+        group_indices_expanded = []
+        
+        for i, g in enumerate(group_names):
+            expanded_members = []
+            for m in groups[g]:
+                expanded_members.extend([m] * (self._degrees.get(m, 0) + 1))
+            groups_expanded_np[g] = np.array(expanded_members, dtype=object)
+            group_indices_expanded.extend([i] * len(expanded_members))
+            
+        group_expanded_sizes = np.array([len(groups_expanded_np[g]) for g in group_names])
+        max_expanded_size = group_expanded_sizes.max()
+        group_indices_expanded = np.array(group_indices_expanded, dtype=int)
+        n_total_expanded = len(group_indices_expanded)
 
         annotated_coverage = sum(len(m) for m in groups.values())
         print(f"[NegativeSampler] {n_groups} annotation groups, "
@@ -336,26 +363,30 @@ class NegativeSampler:
             while len(accepted) < self._n_targets and total_attempts < cap:
                 batch = min(_BATCH_SIZE, cap - total_attempts)
 
-                # Pick a random group for each candidate (SAME group for both proteins).
-                g_arr = rng.randint(0, n_groups, size=batch)
-                # Random member indices within each chosen group.
-                p1_idx = rng.randint(0, group_sizes.max(), size=batch)
-                p2_idx = rng.randint(0, group_sizes.max(), size=batch)
+                # Pick groups proportionally to their total degree mass
+                gi_arr = group_indices_expanded[rng.randint(0, n_total_expanded, size=batch)]
+                
+                # Random member indices within each chosen group using expanded sizes
+                p1_idx = rng.randint(0, max_expanded_size, size=batch)
+                p2_idx = rng.randint(0, max_expanded_size, size=batch)
                 total_attempts += batch
 
-                for k in range(len(g_arr)):
+                for k in range(len(gi_arr)):
                     if len(accepted) >= self._n_targets:
                         break
-                    gi   = g_arr[k]
+                    gi   = gi_arr[k]
                     gname = group_names[gi]
-                    gsz  = group_sizes[gi]
-                    # Modulo keeps indices in range for this group.
+                    gsz  = group_expanded_sizes[gi]
+                    
                     a    = p1_idx[k] % gsz
                     b    = p2_idx[k] % gsz
-                    if a == b:
-                        continue   # self-pair
-                    p1 = groups_np[gname][a]
-                    p2 = groups_np[gname][b]
+                    
+                    p1 = groups_expanded_np[gname][a]
+                    p2 = groups_expanded_np[gname][b]
+                    
+                    if p1 == p2:
+                        continue   # self-pair or same protein picked twice
+                        
                     key = _canonical_pair(p1, p2)
                     if key not in self._positive_set:
                         accepted.append(key)
