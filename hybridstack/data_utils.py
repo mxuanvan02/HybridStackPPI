@@ -85,6 +85,18 @@ def create_feature_matrix(
         avg_feature_names = [f"Avg_{name}" for name in feature_names]
         diff_feature_names = [f"Diff_{name}" for name in feature_names]
         pair_feature_names = avg_feature_names + diff_feature_names
+    elif pairing_strategy == "symmetric":
+        # [E-StackPPI Refactor] Symmetric pairing: Hadamard (P1*P2) + |P1-P2|.
+        # Both operations are commutative → f(A,B) == f(B,A), ensuring the model
+        # cannot exploit arbitrary protein ordering on undirected PPI graphs.
+        hadamard_feature_names = [f"Hadamard_{name}" for name in feature_names]
+        absdiff_feature_names = [f"AbsDiff_{name}" for name in feature_names]
+        pair_feature_names = hadamard_feature_names + absdiff_feature_names
+    elif pairing_strategy == "hadamard_abs":
+        # [Gold Master] Explicit symmetric pairing for Hard Negatives validation.
+        hadamard_feature_names = [f"Hadamard_{name}" for name in feature_names]
+        absdiff_feature_names = [f"AbsDiff_{name}" for name in feature_names]
+        pair_feature_names = hadamard_feature_names + absdiff_feature_names
     else:
         raise ValueError(f"Unknown pairing strategy: {pairing_strategy}")
 
@@ -107,6 +119,17 @@ def create_feature_matrix(
             avg_feats = (p1_feats + p2_feats) / 2.0
             diff_feats = np.abs(p1_feats - p2_feats)
             pair_features = np.concatenate([avg_feats, diff_feats])
+        elif pairing_strategy == "symmetric":
+            # [E-StackPPI Refactor] Element-wise product captures feature co-activation;
+            # absolute difference captures feature divergence. Both are order-invariant.
+            hadamard_feats = p1_feats * p2_feats
+            absdiff_feats = np.abs(p1_feats - p2_feats)
+            pair_features = np.concatenate([hadamard_feats, absdiff_feats])
+        elif pairing_strategy == "hadamard_abs":
+            # [Gold Master] Same math as 'symmetric', distinct branch for tracking.
+            hadamard_feats = p1_feats * p2_feats
+            absdiff_feats = np.abs(p1_feats - p2_feats)
+            pair_features = np.concatenate([hadamard_feats, absdiff_feats])
 
         X_data.append(pair_features)
         y_data.append(label)

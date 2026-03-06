@@ -66,11 +66,14 @@ def create_stacking_pipeline(
 
     embed_steps = [("scaler", StandardScaler())]
     if use_selector:
+        # [E-StackPPI Refactor] Relaxed thresholds to preserve dense ESM-2 embedding dimensions.
+        # Old: q=0.92, corr=0.85 aggressively dropped crucial embedding features.
+        # New: q=0.98, corr=0.99 retains nearly all dimensions, letting the model decide.
         embed_steps.append(
             (
                 "selector",
                 CumulativeFeatureSelector(
-                    importance_quantile=0.92, corr_threshold=0.85, variance_threshold=0.0, verbose=True
+                    importance_quantile=0.98, corr_threshold=0.99, variance_threshold=0.0, verbose=True
                 ),
             )
         )
@@ -86,10 +89,13 @@ def create_stacking_pipeline(
     common_lgbm_params = {
         "n_estimators": 500,
         "learning_rate": 0.05,
-        "num_leaves": 20,
+        "num_leaves": 31,
         "max_depth": 10,
-        "reg_alpha": 0.1,
-        "reg_lambda": 0.1,
+        "min_child_samples": 60,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "reg_alpha": 0.5,
+        "reg_lambda": 0.5,
         "random_state": 42,
         "n_jobs": n_jobs,
         "verbose": -1,
@@ -110,9 +116,15 @@ def create_stacking_pipeline(
         ]
     )
 
+    # [Gold Master] ElasticNet meta-learner with relaxed C=1.0 and L2-heavy ratio.
+    # l1_ratio=0.15 → mostly L2 regularization to stabilize correlated base-learner outputs,
+    # while C=1.0 allows the meta-learner to learn meaningful coefficients on hard negatives.
     stacking_model = StackingClassifier(
         estimators=[("interp", interp_base_estimator), ("embed", embed_base_estimator)],
-        final_estimator=LogisticRegression(random_state=42, class_weight="balanced"),
+        final_estimator=LogisticRegression(
+            penalty='elasticnet', l1_ratio=0.15, solver='saga',
+            C=1.0, random_state=42, class_weight="balanced", max_iter=3000
+        ),
         cv=5,
         n_jobs=n_jobs,
         verbose=0,
@@ -282,6 +294,31 @@ def define_stacking_columns(feature_engine: FeatureEngine, pairing_strategy: str
         prefix1, prefix2 = "P1_", "P2_"
     elif pairing_strategy == "avgdiff":
         prefix1, prefix2 = "Avg_", "Diff_"
+    elif pairing_strategy == "symmetric":
+        # [E-StackPPI Refactor] Symmetric pairing: Hadamard (element-wise product) + |AbsDiff|.
+        # Both operations are order-invariant: f(A,B) == f(B,A), eliminating artificial
+        # asymmetry from concat/avgdiff that inflates metrics on undirected PPI graphs.
+        interp_cols = (
+            [f"Hadamard_{name}" for name in interp_names]
+            + [f"AbsDiff_{name}" for name in interp_names]
+        )
+        embed_cols = (
+            [f"Hadamard_{name}" for name in embed_names]
+            + [f"AbsDiff_{name}" for name in embed_names]
+        )
+        return interp_cols, embed_cols
+    elif pairing_strategy == "hadamard_abs":
+        # [Gold Master] Explicit symmetric pairing for Hard Negatives validation.
+        # Identical math to 'symmetric' but distinct name for reproducibility tracking.
+        interp_cols = (
+            [f"Hadamard_{name}" for name in interp_names]
+            + [f"AbsDiff_{name}" for name in interp_names]
+        )
+        embed_cols = (
+            [f"Hadamard_{name}" for name in embed_names]
+            + [f"AbsDiff_{name}" for name in embed_names]
+        )
+        return interp_cols, embed_cols
     else:
         raise ValueError(f"Unknown pairing strategy: {pairing_strategy}")
 

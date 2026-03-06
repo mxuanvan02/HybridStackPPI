@@ -319,7 +319,12 @@ class FeatureEngine:
         self._load_elm_motifs()
 
         self.global_emb_names = [f"Global_ESM_{i}" for i in range(self.embedding_dim)]
-        self.local_emb_names = [f"Local_Motif_ESM_{i}" for i in range(self.embedding_dim)]
+        # [E-StackPPI Refactor] Doubled local embedding: Max-pool captures peak activations,
+        # Mean-pool preserves weaker but biologically relevant motif signals (reviewer critique).
+        self.local_emb_names = (
+            [f"Local_Motif_ESM_Max_{i}" for i in range(self.embedding_dim)]
+            + [f"Local_Motif_ESM_Mean_{i}" for i in range(self.embedding_dim)]
+        )
 
         print("Feature Engine ready.")
 
@@ -382,7 +387,8 @@ class FeatureEngine:
         local_embedding_vectors = []
 
         if embedding_matrix.shape[0] == 0:
-            return np.array([0] * len(self.motifs), dtype=np.float32), np.zeros(self.embedding_dim, dtype=np.float32)
+            # [E-StackPPI Refactor] Return 2×dim zeros to match the doubled local embedding output.
+            return np.array([0] * len(self.motifs), dtype=np.float32), np.zeros(2 * self.embedding_dim, dtype=np.float32)
 
         for pattern in self.motifs.values():
             # Use finditer() to capture ALL occurrences of the motif, not just the first one.
@@ -399,22 +405,31 @@ class FeatureEngine:
                     if start < end:
                         motif_embs = embedding_matrix[start:end]
                         if motif_embs.shape[0] > 0:
-                            local_embedding_vectors.append(motif_embs.max(axis=0))
+                            local_embedding_vectors.append(motif_embs)
             else:
                 motif_binary_vector.append(0)
 
         if local_embedding_vectors:
-            # Local motif chunks are max-pooled above, and then max-pooled across occurrences.
-            final_local_embedding = np.max(local_embedding_vectors, axis=0)
+            # [E-StackPPI Refactor] Dual pooling: max captures peak signal per dimension,
+            # mean preserves weaker but biologically relevant motif signals.
+            # Stack all motif region embeddings into a single matrix for pooling.
+            all_motif_embs = np.vstack(local_embedding_vectors)
+            max_pool = np.max(all_motif_embs, axis=0)
+            mean_pool = np.mean(all_motif_embs, axis=0)
+            final_local_embedding = np.concatenate([max_pool, mean_pool])
         else:
-            # This preserves sequence context instead of oversimplifying with a zero vector.
+            # Fallback: preserves sequence context when no motifs are found.
+            # Still outputs 2×dim by applying max+mean on the central region.
             length = embedding_matrix.shape[0]
             start_idx = length // 4
             end_idx = length - start_idx
             if start_idx < end_idx:
-                final_local_embedding = embedding_matrix[start_idx:end_idx].mean(axis=0)
+                region = embedding_matrix[start_idx:end_idx]
             else:
-                final_local_embedding = embedding_matrix.mean(axis=0)
+                region = embedding_matrix
+            max_pool = region.max(axis=0)
+            mean_pool = region.mean(axis=0)
+            final_local_embedding = np.concatenate([max_pool, mean_pool])
 
         return np.array(motif_binary_vector, dtype=np.float32), final_local_embedding
 

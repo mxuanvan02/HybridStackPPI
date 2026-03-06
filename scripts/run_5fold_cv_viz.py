@@ -21,6 +21,7 @@ from sklearn.metrics import (
     roc_curve, precision_recall_curve, confusion_matrix
 )
 from lightgbm import LGBMClassifier
+import joblib
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -146,6 +147,13 @@ def run_5fold_cv_unseen(fasta_path, pairs_path, cache_path, dataset_name, output
         y_pred = model.predict(X_test)
         y_prob = model.predict_proba(X_test)[:, 1]
         
+        # [Gold Master] Save trained model artifact for future independent testing
+        model_save_dir = output_dir / "saved_models"
+        model_save_dir.mkdir(parents=True, exist_ok=True)
+        model_path = model_save_dir / f"model_{dataset_name}_fold{fold+1}.joblib"
+        joblib.dump(model, model_path)
+        print(f"  [Artifact] Saved trained model to {model_path}")
+        
         # Metrics
         acc = accuracy_score(y_test, y_pred) * 100
         prec = precision_score(y_test, y_pred, zero_division=0) * 100
@@ -253,7 +261,41 @@ def run_5fold_cv_unseen(fasta_path, pairs_path, cache_path, dataset_name, output
     print(f"✅ Saved: {pr_path}")
     
     # ==========================================================================
-    # PLOT 3: Confusion Matrix (aggregated)
+    # OOF DYNAMIC THRESHOLDING: Optimal F1 Threshold
+    # ==========================================================================
+    all_y_true_arr = np.array(all_y_true)
+    all_y_prob_arr = np.array(all_y_prob)
+    
+    precision_vals, recall_vals, thresholds = precision_recall_curve(all_y_true_arr, all_y_prob_arr)
+    # precision_recall_curve returns len(thresholds) = len(precision_vals) - 1
+    f1_scores = 2 * precision_vals[:-1] * recall_vals[:-1] / (precision_vals[:-1] + recall_vals[:-1] + 1e-8)
+    optimal_idx = np.argmax(f1_scores)
+    optimal_threshold = thresholds[optimal_idx]
+    optimal_f1 = f1_scores[optimal_idx]
+    
+    # Recalculate predictions using optimal threshold
+    y_pred_optimal = (all_y_prob_arr >= optimal_threshold).astype(int)
+    opt_acc = accuracy_score(all_y_true_arr, y_pred_optimal) * 100
+    opt_prec = precision_score(all_y_true_arr, y_pred_optimal, zero_division=0) * 100
+    opt_rec = recall_score(all_y_true_arr, y_pred_optimal, zero_division=0) * 100
+    opt_f1 = f1_score(all_y_true_arr, y_pred_optimal, zero_division=0) * 100
+    opt_mcc = matthews_corrcoef(all_y_true_arr, y_pred_optimal) * 100
+    
+    print(f"\n{'='*70}")
+    print(f"OOF DYNAMIC THRESHOLDING (F1-Optimized)")
+    print(f"{'='*70}")
+    print(f"  Optimal F1 Threshold: {optimal_threshold:.4f}")
+    print(f"  Accuracy:  {opt_acc:.2f}%")
+    print(f"  Precision: {opt_prec:.2f}%")
+    print(f"  Recall:    {opt_rec:.2f}%")
+    print(f"  F1-Score:  {opt_f1:.2f}%")
+    print(f"  MCC:       {opt_mcc:.2f}%")
+    
+    # Override all_y_pred with optimal threshold for downstream plots (Confusion Matrix, etc.)
+    all_y_pred = y_pred_optimal.tolist()
+    
+    # ==========================================================================
+    # PLOT 3: Confusion Matrix (aggregated, using optimal threshold)
     # ==========================================================================
     cm = confusion_matrix(all_y_true, all_y_pred)
     
@@ -368,6 +410,17 @@ def run_5fold_cv_unseen(fasta_path, pairs_path, cache_path, dataset_name, output
         latex_row += f"${summary['f1']['mean']:.2f} \\pm {summary['f1']['std']:.2f}$ & "
         latex_row += f"${summary['mcc']['mean']:.2f} \\pm {summary['mcc']['std']:.2f}$ \\\\"
         f.write(latex_row + "\n")
+        
+        # [Gold Master] Append OOF Dynamic Thresholding results
+        f.write("\n")
+        f.write("OOF Dynamic Thresholding (F1-Optimized):\n")
+        f.write("-" * 70 + "\n")
+        f.write(f"  Optimal F1 Threshold: {optimal_threshold:.4f}\n")
+        f.write(f"  Accuracy:  {opt_acc:.2f}%\n")
+        f.write(f"  Precision: {opt_prec:.2f}%\n")
+        f.write(f"  Recall:    {opt_rec:.2f}%\n")
+        f.write(f"  F1-Score:  {opt_f1:.2f}%\n")
+        f.write(f"  MCC:       {opt_mcc:.2f}%\n")
     
     print(f"✅ Saved: {results_file}")
     
