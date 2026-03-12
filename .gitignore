@@ -52,6 +52,20 @@ reports/
 benchmarks/
 *.lock
 .agent
+figures/
+tmp*
+nohup.out
+*_pid.txt
+LOG_*.txt
+*.pdf
+*.png
+
+# --- 7. IGNORE OPTIONAL EXTERNAL MODEL REPOS (not part of core HybridStackPPI) ---
+D-SCRIPT/
+Topsy-Turvy/
+RaftPPI/
+SPRINT/
+proteinPrompt/
 LPBERT/
 deeptrio/
 rapppid/
@@ -59,3 +73,12 @@ seq_ppi/
 xCAPT5/
 baseline_scripts/
 run_baselines.sh
+
+# --- 8. IGNORE NON-CORE/DERIVED DATASETS ---
+data/BioGrid/Human/CDHIT_Reduced/
+data/BioGrid/Yeast/CDHIT_Reduced/
+data/LPBERT/
+data/deeptrio/
+data/seq_ppi/
+data/xCAPT5/
+data/rapppid/

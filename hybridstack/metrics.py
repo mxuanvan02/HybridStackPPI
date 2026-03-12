@@ -394,7 +394,7 @@ def print_paper_style_results(metrics_obj):
     raise TypeError(f"Unsupported metrics type: {type(metrics_obj)}")
 
 
-def plot_cv_roc_pr_curves(cv_results: list, save_dir: str = "results/plots",  title: str = "5-Fold Cross-Validation"):
+def plot_cv_roc_pr_curves(cv_results: list, save_dir: str = "results/plots",  title: str = "5-Fold Cross-Validation", prefix: str = ""):
     """
     Plot mean ROC and PR curves with ± std deviation bands from CV results.
     
@@ -402,6 +402,7 @@ def plot_cv_roc_pr_curves(cv_results: list, save_dir: str = "results/plots",  ti
         cv_results: List of dicts with keys 'y_true' and 'y_proba' for each fold
         save_dir: Directory to save plots
         title: Title prefix for plots
+        prefix: Prefix string for saved output filenames
         
     Example:
         cv_results = [
@@ -479,8 +480,9 @@ def plot_cv_roc_pr_curves(cv_results: list, save_dir: str = "results/plots",  ti
     ax_roc.grid(True, alpha=0.3)
     
     # Save ROC
-    roc_png_path = os.path.join(save_dir, f'cv_roc_mean.png')
-    roc_pdf_path = os.path.join(save_dir, f'cv_roc_mean.pdf')
+    file_name = f"{prefix}cv_roc_mean" if prefix else "cv_roc_mean"
+    roc_png_path = os.path.join(save_dir, f'{file_name}.png')
+    roc_pdf_path = os.path.join(save_dir, f'{file_name}.pdf')
     fig_roc.tight_layout()
     fig_roc.savefig(roc_png_path, dpi=300, bbox_inches='tight')
     fig_roc.savefig(roc_pdf_path, bbox_inches='tight')
@@ -541,8 +543,9 @@ def plot_cv_roc_pr_curves(cv_results: list, save_dir: str = "results/plots",  ti
     ax_pr.grid(True, alpha=0.3)
     
     # Save PR
-    pr_png_path = os.path.join(save_dir, f'cv_pr_mean.png')
-    pr_pdf_path = os.path.join(save_dir, f'cv_pr_mean.pdf')
+    file_name = f"{prefix}cv_pr_mean" if prefix else "cv_pr_mean"
+    pr_png_path = os.path.join(save_dir, f'{file_name}.png')
+    pr_pdf_path = os.path.join(save_dir, f'{file_name}.pdf')
     fig_pr.tight_layout()
     fig_pr.savefig(pr_png_path, dpi=300, bbox_inches='tight')
     fig_pr.savefig(pr_pdf_path, bbox_inches='tight')
@@ -563,7 +566,7 @@ def plot_cv_roc_pr_curves(cv_results: list, save_dir: str = "results/plots",  ti
     }
 
 
-def plot_cv_metric_distribution(fold_metrics: list, save_dir: str = "results/plots", title: str = "5-Fold CV Metrics"):
+def plot_cv_metric_distribution(fold_metrics: list, save_dir: str = "results/plots", title: str = "5-Fold CV Metrics", prefix: str = ""):
     """
     Plot boxplots showing distribution of metrics across CV folds.
     
@@ -571,6 +574,7 @@ def plot_cv_metric_distribution(fold_metrics: list, save_dir: str = "results/plo
         fold_metrics: List of metric dicts from each fold (output of display_full_metrics)
         save_dir: Directory to save plots
         title: Title for the plot
+        prefix: Prefix string for saved output filenames
         
     Example:
         fold_metrics = [
@@ -641,8 +645,9 @@ def plot_cv_metric_distribution(fold_metrics: list, save_dir: str = "results/plo
     plt.xticks(rotation=45, ha='right')
     
     # Save
-    png_path = os.path.join(save_dir, f'cv_metric_boxplot.png')
-    pdf_path = os.path.join(save_dir, f'cv_metric_boxplot.pdf')
+    file_name = f"{prefix}cv_metric_boxplot" if prefix else "cv_metric_boxplot"
+    png_path = os.path.join(save_dir, f'{file_name}.png')
+    pdf_path = os.path.join(save_dir, f'{file_name}.pdf')
     fig.tight_layout()
     fig.savefig(png_path, dpi=300, bbox_inches='tight')
     fig.savefig(pdf_path, bbox_inches='tight')
@@ -664,6 +669,97 @@ def plot_cv_metric_distribution(fold_metrics: list, save_dir: str = "results/plo
     return df[available_metrics].describe()
 
 
+def plot_f1_threshold_curve(
+    thresholds: np.ndarray,
+    f1_scores: np.ndarray,
+    optimal_idx: int,
+    save_dir: str = "results/plots",
+    title: str = "F1 Score vs Decision Threshold",
+):
+    """
+    Plot F1-Score as a function of decision threshold, highlighting the optimal point.
+
+    Args:
+        thresholds: Array of threshold values from precision_recall_curve.
+        f1_scores: Array of F1-scores corresponding to each threshold.
+        optimal_idx: Index of the optimal (max F1) threshold.
+        save_dir: Directory to save the plot.
+        title: Plot title.
+    """
+    import os
+    os.makedirs(save_dir, exist_ok=True)
+
+    sns.set_style("whitegrid")
+    fig, ax = plt.subplots(figsize=(8, 6), dpi=300)
+
+    ax.plot(thresholds, f1_scores, color="steelblue", lw=2, label="F1 Score")
+    ax.axvline(x=thresholds[optimal_idx], color="crimson", linestyle="--", lw=1.5,
+               label=f"Optimal = {thresholds[optimal_idx]:.4f}")
+    ax.scatter([thresholds[optimal_idx]], [f1_scores[optimal_idx]],
+               color="crimson", s=120, zorder=5, edgecolors="black",
+               label=f"Max F1 = {f1_scores[optimal_idx]:.4f}")
+    ax.axvline(x=0.5, color="gray", linestyle=":", lw=1, label="Default 0.5")
+
+    ax.set_xlabel("Decision Threshold", fontsize=13, fontweight="bold")
+    ax.set_ylabel("F1 Score", fontsize=13, fontweight="bold")
+    ax.set_title(title, fontsize=15, fontweight="bold")
+    ax.set_xlim([-0.02, 1.02])
+    ax.legend(loc="best", fontsize=10, framealpha=0.9)
+    ax.grid(True, alpha=0.3)
+
+    png_path = os.path.join(save_dir, "oof_f1_threshold.png")
+    pdf_path = os.path.join(save_dir, "oof_f1_threshold.pdf")
+    fig.tight_layout()
+    fig.savefig(png_path, dpi=300, bbox_inches="tight")
+    fig.savefig(pdf_path, bbox_inches="tight")
+    _safe_fig_close()
+    print(f"   ✅ Saved {png_path} (PNG) and {pdf_path} (PDF)")
+
+
+def plot_oof_confusion_matrix(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    save_dir: str = "results/plots",
+    threshold_label: float = 0.5,
+    title: str = "OOF Confusion Matrix",
+):
+    """
+    Plot and save a publication-quality confusion matrix heatmap.
+
+    Args:
+        y_true: Ground truth binary labels.
+        y_pred: Predicted binary labels (at a given threshold).
+        save_dir: Directory to save the plot.
+        threshold_label: The threshold value used (for annotation).
+        title: Plot title.
+    """
+    import os
+    os.makedirs(save_dir, exist_ok=True)
+
+    cm = confusion_matrix(y_true, y_pred)
+    sns.set_style("whitegrid")
+    fig, ax = plt.subplots(figsize=(6, 5), dpi=300)
+
+    sns.heatmap(
+        cm, annot=True, fmt="d", cmap="Blues", ax=ax,
+        xticklabels=["Negative", "Positive"],
+        yticklabels=["Negative", "Positive"],
+        annot_kws={"size": 16, "fontweight": "bold"},
+        linewidths=1, linecolor="white",
+    )
+    ax.set_xlabel("Predicted Label", fontsize=13, fontweight="bold")
+    ax.set_ylabel("True Label", fontsize=13, fontweight="bold")
+    ax.set_title(f"{title}\n(Threshold = {threshold_label:.4f})", fontsize=14, fontweight="bold")
+
+    png_path = os.path.join(save_dir, "oof_confusion_matrix.png")
+    pdf_path = os.path.join(save_dir, "oof_confusion_matrix.pdf")
+    fig.tight_layout()
+    fig.savefig(png_path, dpi=300, bbox_inches="tight")
+    fig.savefig(pdf_path, bbox_inches="tight")
+    _safe_fig_close()
+    print(f"   ✅ Saved {png_path} (PNG) and {pdf_path} (PDF)")
+
+
 __all__ = [
     "display_full_metrics",
     "plot_evaluation_results",
@@ -682,4 +778,6 @@ __all__ = [
     "print_paper_style_results",
     "plot_cv_roc_pr_curves",
     "plot_cv_metric_distribution",
+    "plot_f1_threshold_curve",
+    "plot_oof_confusion_matrix",
 ]

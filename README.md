@@ -1,124 +1,88 @@
-# HybridStack-PPI: A Biologically-Informed Hybrid Stacking Framework
+# HybridStackPPI
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.9%2B-green.svg)](https://www.python.org/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-red.svg)](https://pytorch.org/)
-[![Bioinformatics](https://img.shields.io/badge/Task-PPI_Prediction-purple.svg)]()
+HybridStackPPI is a reproducible experiment workspace for protein-protein interaction (PPI) prediction.
+This README is focused on **how to run and maintain the repo**, not on paper narrative.
 
-> **Abstract:** Recent Protein Language Models (PLMs) like ESM-2 have revolutionized PPI prediction but often lack interpretability. **HybridStack-PPI** bridges this gap by systematically integrating deep semantic embeddings with explicit evolutionary motifs (SLiMs). Validated on Human and Yeast datasets under strict protein-level splitting, our framework achieves **99.45% accuracy** while maintaining biological transparency.
+## What this repo contains
 
-<p align="center">
-  <img src="docs/HybridStackPPI_pipeline.png" alt="HybridStack-PPI Architecture" width="800">
-  <br>
-  <em>Figure 1: The dual-branch architecture of HybridStack-PPI.</em>
-</p>
+- Core model and feature pipeline in `hybridstack/`
+- Reproducible experiment entrypoints in `scripts/entrypoints/`
+- Baseline method implementations in `scripts/baselines/`
+- Dataset inputs in `data/BioGrid/`
+- Runtime outputs in `results/`, `logs/`, and `cache/` (ignored by git)
 
-## 🚀 Key Features
+## Environment
 
-- **Biologically-Informed:** Explicitly utilizes SLiMs (Short Linear Motifs) from the ELM database combined with deep learning.
-- **High Accuracy:** Achieves **99.45%** accuracy on the Human BioGRID dataset via a rigorous Protein-level split protocol to prevent leakage.
-- **Hybrid Architecture:** A dual-branch system merging ESM-2 embeddings with physicochemical priors via a novel "motif-anchored" pooling strategy.
-- **Reproducible:** Deterministic results with fixed random seeds and protein-level cross-validation.
-
-## ⚙️ System Requirements
-
-- **OS:** Linux or macOS recommended (Windows supported via WSL2).
-- **Python:** 3.9+.
-- **Hardware:**
-  - **GPU:** CUDA-compatible GPU with at least **8GB VRAM** is recommended for ESM-2 (650M) inference.
-  - **RAM:** 16GB+ system memory.
-  - **Disk Space:** ~3GB for model weights and dataset cache.
-
-## 🛠️ Installation
-
-1. **Clone the repository:**
-
-   ```bash
-   git clone https://github.com/mxuanvan02/HybridStackPPI.git
-   cd HybridStackPPI
-   ```
-
-2. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-## 📂 Data Preparation
-
-### 1. BioGRID Datasets
-
-Due to GitHub file size limits, the processed `.tsv` files might not be included in the repo.
-
-- Ensure the `data/BioGrid/Human` and `data/BioGrid/Yeast` directories contain the required `human_pairs.tsv` and `yeast_pairs.tsv` files.
-- If missing, please run the preprocessing script or download the dataset from [Insert Link to Data Source].
-
-### 2. ELM Motifs Database
-
-The model automatically fetches motif definitions from the ELM database (http://elm.eu.org/elms/elms_index.tsv).
-
-## 📊 Reproducing Results
-
-To reproduce the benchmark results reported in the paper (Table 3 & Table 4):
+- Python 3.9+
+- Install dependencies:
 
 ```bash
-# Run 5-fold CV on Human dataset
-python scripts/reproduce_results.py --dataset human --n-splits 5
-
-# Run 5-fold CV on Yeast dataset
-python scripts/reproduce_results.py --dataset yeast --n-splits 5
+pip install -r requirements.txt
 ```
 
-## 🧪 Usage (Prediction)
+## Required data layout
 
-To predict the interaction probability between two arbitrary protein sequences using the trained model:
+Make sure these files exist:
+
+- `data/BioGrid/Human/human_dict.fasta`
+- `data/BioGrid/Human/human_pairs.tsv`
+- `data/BioGrid/Human/human_pairs_same_compartment.tsv`
+- `data/BioGrid/Human/human_pairs_same_go.tsv`
+- `data/BioGrid/Yeast/yeast_dict.fasta`
+- `data/BioGrid/Yeast/yeast_pairs.tsv`
+- `data/BioGrid/Yeast/yeast_pairs_same_compartment.tsv`
+- `data/BioGrid/Yeast/yeast_pairs_same_go.tsv`
+
+## Main run commands
+
+### HybridStackPPI (5-fold CV)
 
 ```bash
-python scripts/predict.py \
-  --seq1 "MEEPQSDPSVEPPLSQETFSDLWKLLP..." \
-  --seq2 "MCNTNMSVPTDGAVTTSQIPASEQET..."
+python scripts/entrypoints/reproduce_results.py --dataset human --n-splits 5 --pairing hadamard_abs --strategy same_compartment
+python scripts/entrypoints/reproduce_results.py --dataset yeast --n-splits 5 --pairing hadamard_abs --strategy same_compartment
 ```
 
-## 📂 Project Structure
+### same_go stress test
 
-```
-HybridStackPPI/
-├── hybridstack/              # Core Python package
-│   ├── __init__.py
-│   ├── feature_engine.py     # Feature extraction (ESM-2 + ELM motifs)
-│   ├── builders.py           # Model pipeline builders
-│   ├── selectors.py          # Feature selection logic
-│   ├── metrics.py            # Evaluation metrics & visualization
-│   ├── data_utils.py         # Data loading & preprocessing
-│   └── logger.py             # Logging utilities
-├── scripts/                  # Experiments & Utility scripts
-│   ├── run.py                # Main experiment runner
-│   ├── predict.py            # Inference script
-│   ├── reproduce_results.py  # Reproduce paper results
-│   └── exp_*.py              # Ablation experiments
-├── utils/                    # Shared utilities
-│   ├── artifact_manager.py   # Experiment artifact management
-│   └── logger.py             # Advanced logging
-├── data/                     # Datasets
-│   └── BioGrid/              # Human & Yeast PPI datasets
-├── docs/                     # Documentation & figures
-├── requirements.txt
-└── README.md
+```bash
+python scripts/entrypoints/reproduce_results.py --dataset both --n-splits 5 --pairing hadamard_abs --strategy same_go
 ```
 
-<!-- ## 📝 Citation
+### Classical baselines (CT, AC)
 
-If you find HybridStack-PPI useful for your research, please cite our paper:
+```bash
+python scripts/entrypoints/run_baselines.py --dataset both --strategy same_compartment
+python scripts/entrypoints/run_baselines.py --dataset both --strategy same_go
+```
 
-```bibtex
-@article{mai2025hybridstack,
-  title={A Biologically-Informed Hybrid Stacking Framework for Protein-Protein Interaction Prediction},
-  author={Mai, Xuan Van and Dang, Tri Nguyen and Nguyen, Ngoc Thanh and Nguyen, Tuong Tri},
-  journal={Computer Science and Information Systems},
-  year={2025},
-  note={Under Review}
-}
-``` -->
+### External SOTA baselines
 
-## 📄 License
+```bash
+python scripts/entrypoints/run_sota.py --methods sprint dscript esm2_mlp proteinprompt raftppi --dataset both --strategy same_compartment
+```
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+Notes:
+- `proteinprompt` requires Docker image `proteinprompt`.
+- `raftppi` requires local/cache files for `facebook/esm2_t6_8M_UR50D`.
+
+### Ablation
+
+```bash
+python scripts/entrypoints/run_ablation.py --dataset both --n-splits 5 --strategy same_compartment
+```
+
+## Script structure
+
+See `scripts/README.md` for script organization details.
+
+## Backward compatibility
+
+Legacy paths in `scripts/` (for example `scripts/reproduce_results.py`) are kept as wrappers and still work.
+
+## Repository hygiene
+
+- Heavy/generated artifacts are ignored in `.gitignore`:
+  - `cache/`, `logs/`, `results/`
+  - external model repos (for example `D-SCRIPT/`, `RaftPPI/`, `proteinPrompt/`)
+  - large derived datasets (for example `data/BioGrid/*/CDHIT_Reduced/`)
+- Keep commits focused on source code and documentation.

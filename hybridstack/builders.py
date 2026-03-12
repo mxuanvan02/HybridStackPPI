@@ -55,8 +55,19 @@ def create_lgbm_pipeline(
 
 
 def create_stacking_pipeline(
-    interp_cols: List[str], embed_cols: List[str], n_jobs: int = -1, use_selector: bool = True
+    interp_cols: List[str], embed_cols: List[str], n_jobs: int = -1, use_selector: bool = True, cv_n_jobs: int = 1,
+    feature_names: List[str] | None = None, meta_learner_type: str = "lr"
 ) -> StackingClassifier:
+    
+    # [Refactor] Convert string names to integer indices to support Numpy native processing
+    if feature_names is not None:
+        name_to_idx = {name: i for i, name in enumerate(feature_names)}
+        interp_cols_passed = [name_to_idx[c] for c in interp_cols if c in name_to_idx]
+        embed_cols_passed = [name_to_idx[c] for c in embed_cols if c in name_to_idx]
+    else:
+        interp_cols_passed = interp_cols
+        embed_cols_passed = embed_cols
+
     if use_selector:
         interp_preprocessor = CumulativeFeatureSelector(
             importance_quantile=0.97, corr_threshold=0.95, variance_threshold=0.01, verbose=True
@@ -104,33 +115,91 @@ def create_stacking_pipeline(
 
     interp_base_estimator = Pipeline(
         [
-            ("preprocessor", ColumnTransformer([("interp_transformer", interp_preprocessor, interp_cols)], remainder="drop", n_jobs=n_jobs)),
+            ("preprocessor", ColumnTransformer([("interp_transformer", interp_preprocessor, interp_cols_passed)], remainder="drop", n_jobs=n_jobs)),
             ("model", LGBMClassifier(**common_lgbm_params)),
         ]
     )
 
     embed_base_estimator = Pipeline(
         [
-            ("preprocessor", ColumnTransformer([("embed_transformer", embed_preprocessor, embed_cols)], remainder="drop", n_jobs=n_jobs)),
+            ("preprocessor", ColumnTransformer([("embed_transformer", embed_preprocessor, embed_cols_passed)], remainder="drop", n_jobs=n_jobs)),
             ("model", LGBMClassifier(**common_lgbm_params)),
         ]
     )
 
-    # [Gold Master] ElasticNet meta-learner with relaxed C=1.0 and L2-heavy ratio.
-    # l1_ratio=0.15 → mostly L2 regularization to stabilize correlated base-learner outputs,
-    # while C=1.0 allows the meta-learner to learn meaningful coefficients on hard negatives.
-    stacking_model = StackingClassifier(
-        estimators=[("interp", interp_base_estimator), ("embed", embed_base_estimator)],
-        final_estimator=LogisticRegression(
+    # ElasticNet meta-learner: l1_ratio=0.15 (L2-heavy) ổn định đầu ra của 2 base-learner có tương quan;
+    # C=1.0 cho phép meta-learner học được hệ số phân biệt trên hard negatives.
+    # StackingClassifier hạn chế fork ma trận bằng cv_n_jobs (mặc định=1) để tránh OOM với dữ liệu lớn;
+    # parallelism chủ lực được đẩy xuống tầng LGBM thông qua n_jobs (thread-based) để tái sử dụng bộ nhớ.
+    if meta_learner_type == "lr":
+        final_estimator = LogisticRegression(
             penalty='elasticnet', l1_ratio=0.15, solver='saga',
             C=1.0, random_state=42, class_weight="balanced", max_iter=3000
-        ),
+        )
+    elif meta_learner_type == "lgbm":
+        final_estimator = LGBMClassifier(
+            n_estimators=100, learning_rate=0.05, num_leaves=15,
+            max_depth=5, min_child_samples=20, random_state=42,
+            class_weight="balanced", verbose=-1
+        )
+    else:
+        raise ValueError(f"Unknown meta_learner_type: {meta_learner_type}")
+
+    stacking_model = StackingClassifier(
+        estimators=[("interp", interp_base_estimator), ("embed", embed_base_estimator)],
+        final_estimator=final_estimator,
         cv=5,
-        n_jobs=n_jobs,
+        n_jobs=cv_n_jobs,
         verbose=0,
     )
-    print(f"✅ Stacking (Selector={use_selector}) pipeline created.")
+    print(f"✅ Stacking (Selector={use_selector}, Meta={meta_learner_type}) pipeline created.")
     return stacking_model
+
+def create_early_fusion_pipeline(
+    interp_cols: List[str], embed_cols: List[str], n_jobs: int = -1, feature_names: List[str] | None = None
+) -> Pipeline:
+    if feature_names is not None:
+        name_to_idx = {name: i for i, name in enumerate(feature_names)}
+        interp_cols_passed = [name_to_idx[c] for c in interp_cols if c in name_to_idx]
+        embed_cols_passed = [name_to_idx[c] for c in embed_cols if c in name_to_idx]
+    else:
+        interp_cols_passed = interp_cols
+        embed_cols_passed = embed_cols
+
+    # Trộn chung tất cả features lại. Scale các embed features, passthrough interp features
+    preprocessor = ColumnTransformer(
+        [
+            ("embed_scaler", StandardScaler(), embed_cols_passed),
+            ("interp_pass", "passthrough", interp_cols_passed),
+        ],
+        remainder="drop",
+        n_jobs=n_jobs
+    )
+    
+    # Selector cho ma trận khổng lồ.
+    selector = CumulativeFeatureSelector(
+        importance_quantile=0.98, corr_threshold=0.99, variance_threshold=0.0, verbose=True
+    )
+    
+    lgbm_params = {
+        "n_estimators": 500, "learning_rate": 0.05, "num_leaves": 31, "max_depth": 10,
+        "min_child_samples": 60, "subsample": 0.8, "colsample_bytree": 0.8, "reg_alpha": 0.5,
+        "reg_lambda": 0.5, "random_state": 42, "n_jobs": n_jobs, "verbose": -1, "class_weight": "balanced",
+    }
+    
+    pipeline = Pipeline([
+        ("preprocessor", preprocessor),
+        ("selector", selector),
+        ("model", LGBMClassifier(**lgbm_params))
+    ])
+    try:
+        if hasattr(preprocessor, "set_output"):
+            preprocessor.set_output(transform="pandas")
+        selector.set_output(transform="pandas")
+    except Exception:
+        pass
+    print("✅ Early Fusion pipeline created.")
+    return pipeline
 
 
 def create_svm_pipeline(n_jobs: int = -1, selector_quantile: float = 0.5) -> Pipeline:
@@ -205,7 +274,16 @@ def create_esm_lgbm_selector_pipeline(n_jobs: int = -1) -> Pipeline:
     return pipeline
 
 
-def create_embed_only_pipeline(embed_cols: List[str], n_jobs: int = -1, use_selector: bool = True):
+def create_embed_only_pipeline(embed_cols: List[str], n_jobs: int = -1, use_selector: bool = True,
+                               feature_names: List[str] | None = None, estimator_type: str = "lgbm"):
+    # Convert string column names to integer indices when feature_names is provided
+    # (required when run_experiment passes numpy arrays instead of DataFrames)
+    if feature_names is not None:
+        name_to_idx = {name: i for i, name in enumerate(feature_names)}
+        embed_cols_passed = [name_to_idx[c] for c in embed_cols if c in name_to_idx]
+    else:
+        embed_cols_passed = embed_cols
+
     embed_steps = [("scaler", StandardScaler())]
     if use_selector:
         embed_steps.append(
@@ -223,29 +301,43 @@ def create_embed_only_pipeline(embed_cols: List[str], n_jobs: int = -1, use_sele
     except Exception:
         pass
 
-    model_params = {
-        "n_estimators": 500,
-        "learning_rate": 0.05,
-        "num_leaves": 20,
-        "max_depth": 10,
-        "reg_alpha": 0.1,
-        "reg_lambda": 0.1,
-        "random_state": 42,
-        "n_jobs": n_jobs,
-        "verbose": -1,
-    }
+    if estimator_type == "lr":
+        from sklearn.linear_model import LogisticRegression
+        model = LogisticRegression(random_state=42, class_weight="balanced", max_iter=2000, solver="lbfgs")
+    else:
+        model_params = {
+            "n_estimators": 500,
+            "learning_rate": 0.05,
+            "num_leaves": 20,
+            "max_depth": 10,
+            "reg_alpha": 0.1,
+            "reg_lambda": 0.1,
+            "random_state": 42,
+            "n_jobs": n_jobs,
+            "verbose": -1,
+            "class_weight": "balanced",
+        }
+        model = LGBMClassifier(**model_params)
 
     pipeline = Pipeline(
         [
-            ("preprocessor", ColumnTransformer([("embed_transformer", embed_preprocessor, embed_cols)], remainder="drop", n_jobs=n_jobs)),
-            ("model", LGBMClassifier(**model_params, class_weight="balanced")),
+            ("preprocessor", ColumnTransformer([("embed_transformer", embed_preprocessor, embed_cols_passed)], remainder="drop", n_jobs=n_jobs)),
+            ("model", model),
         ]
     )
     print("✅ Embed-Only pipeline created.")
     return pipeline
 
 
-def create_interp_only_pipeline(interp_cols: List[str], n_jobs: int = -1, use_selector: bool = True):
+def create_interp_only_pipeline(interp_cols: List[str], n_jobs: int = -1, use_selector: bool = True,
+                                feature_names: List[str] | None = None, estimator_type: str = "lgbm"):
+    # Convert string column names to integer indices when feature_names is provided
+    if feature_names is not None:
+        name_to_idx = {name: i for i, name in enumerate(feature_names)}
+        interp_cols_passed = [name_to_idx[c] for c in interp_cols if c in name_to_idx]
+    else:
+        interp_cols_passed = interp_cols
+
     if use_selector:
         interp_preprocessor = CumulativeFeatureSelector(
             importance_quantile=0.95, corr_threshold=0.97, variance_threshold=0.01, verbose=True
@@ -259,22 +351,28 @@ def create_interp_only_pipeline(interp_cols: List[str], n_jobs: int = -1, use_se
     except Exception:
         pass
 
-    model_params = {
-        "n_estimators": 500,
-        "learning_rate": 0.05,
-        "num_leaves": 20,
-        "max_depth": 10,
-        "reg_alpha": 0.1,
-        "reg_lambda": 0.1,
-        "random_state": 42,
-        "n_jobs": n_jobs,
-        "verbose": -1,
-    }
+    if estimator_type == "lr":
+        from sklearn.linear_model import LogisticRegression
+        model = LogisticRegression(random_state=42, class_weight="balanced", max_iter=2000, solver="lbfgs")
+    else:
+        model_params = {
+            "n_estimators": 500,
+            "learning_rate": 0.05,
+            "num_leaves": 20,
+            "max_depth": 10,
+            "reg_alpha": 0.1,
+            "reg_lambda": 0.1,
+            "random_state": 42,
+            "n_jobs": n_jobs,
+            "verbose": -1,
+            "class_weight": "balanced",
+        }
+        model = LGBMClassifier(**model_params)
 
     pipeline = Pipeline(
         [
-            ("preprocessor", ColumnTransformer([("interp_transformer", interp_preprocessor, interp_cols)], remainder="drop", n_jobs=n_jobs)),
-            ("model", LGBMClassifier(**model_params, class_weight="balanced")),
+            ("preprocessor", ColumnTransformer([("interp_transformer", interp_preprocessor, interp_cols_passed)], remainder="drop", n_jobs=n_jobs)),
+            ("model", model),
         ]
     )
     print("✅ Interp-Only pipeline created.")
