@@ -34,7 +34,7 @@ def run_dscript_baseline(dataset_name, sequences, pairs_df, n_splits, output_dir
     if not os.path.exists(emb_path):
         logger.info("  [D-SCRIPT] Computing Bepler-Berger language model embeddings (this may take a while on CPU...)")
         t0 = time.time()
-        cmd = ["python", "-m", "dscript", "embed", "--seqs", fasta_path, "-o", emb_path, "-d", "-1"]
+        cmd = ["python", "-m", "dscript", "embed", "--seqs", fasta_path, "-o", emb_path, "-d", "cpu"]
         res = subprocess.run(cmd, capture_output=True, text=True)
         if res.returncode != 0:
             print(f"D-SCRIPT embedding failed: {res.stderr}")
@@ -69,7 +69,7 @@ def run_dscript_baseline(dataset_name, sequences, pairs_df, n_splits, output_dir
             "--embeddings", emb_path,
             "--model", "samsl/topsy_turvy_human_v1",
             "--outfile", out_pred_path,
-            "-d", "-1"
+            "-d", "cpu"
         ]
         
         res = subprocess.run(cmd, capture_output=True, text=True)

@@ -80,15 +80,33 @@ class EmbeddingComputer:
     def __init__(self, model_name: str = "facebook/esm2_t33_650M_UR50D"):
         print(f"Loading protein language model: {model_name}...")
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModel.from_pretrained(model_name).to(self.device)
-        self.model.eval()
-        self.embedding_dim = self.model.config.hidden_size
-        print(f"ESM2 model loaded successfully on {self.device.upper()}.")
+        self.model_name = model_name
+        self.tokenizer = None
+        self.model = None
+        self.embedding_dim = 1280 if "t33_650M" in model_name else 320
+
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
+            self.model = AutoModel.from_pretrained(model_name, local_files_only=True).to(self.device)
+            self.model.eval()
+            self.embedding_dim = self.model.config.hidden_size
+            print(f"ESM2 model loaded successfully on {self.device.upper()}.")
+        except Exception as exc:
+            # Allow cached-only workflows: FeatureEngine reads H5 first and only computes on cache miss.
+            print(
+                "Warning: could not load ESM2 model. "
+                "Running in cached-only mode (cache miss will fail). "
+                f"Reason: {type(exc).__name__}: {exc}"
+            )
 
     @torch.no_grad()
     def compute_full_embeddings(self, sequence: str) -> tuple[np.ndarray, np.ndarray]:
         """Return full residue matrix and global vector."""
+        if self.model is None or self.tokenizer is None:
+            raise RuntimeError(
+                "ESM2 model is unavailable and embedding was not found in cache. "
+                "Provide local HF cache or network access to compute missing embeddings."
+            )
         inputs = self.tokenizer(sequence, return_tensors="pt", truncation=True, max_length=1022).to(self.device)
         outputs = self.model(**inputs)
 

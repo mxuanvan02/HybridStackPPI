@@ -53,7 +53,7 @@ def _compute_metrics(y_true: np.ndarray, y_proba: np.ndarray, thr: float = 0.5) 
 
 def _load_raft_model(logger):
     root = Path(__file__).resolve().parents[2]
-    raft_root = root / "RaftPPI"
+    raft_root = root / "external" / "RaftPPI"
     ckpt_path = raft_root / "checkpoints" / "dscript" / "pytorch_model.bin"
     model_py = raft_root / "src" / "raft" / "model.py"
     if not ckpt_path.exists():

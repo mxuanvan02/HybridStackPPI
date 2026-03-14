@@ -52,7 +52,7 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--strategy",
-        choices=["default", "same_compartment"],
+        choices=["default", "same_compartment", "same_go"],
         default="same_compartment",
     )
     args = parser.parse_args()
@@ -78,7 +78,7 @@ def main():
     interp_cols_cat, embed_cols_cat = define_stacking_columns(feature_engine, "concat")
 
     # Strategy suffix
-    suffix_map = {"same_compartment": "_same_compartment"}
+    suffix_map = {"same_compartment": "_same_compartment", "same_go": "_same_go"}
     suffix = suffix_map.get(args.strategy, "")
 
     # Dataset configs
@@ -103,7 +103,7 @@ def main():
             "label": "A1: Interp-Only (Handcraft+Motif)",
             "pairing": "hadamard_abs",
             "factory": lambda n_jobs=-1, feature_names=None, ic=interp_cols_sym: create_interp_only_pipeline(
-                ic, n_jobs, use_selector=True
+                ic, n_jobs, use_selector=True, feature_names=feature_names
             ),
         },
         {
@@ -111,7 +111,7 @@ def main():
             "label": "A2: Embed-Only (ESM-2+Local)",
             "pairing": "hadamard_abs",
             "factory": lambda n_jobs=-1, feature_names=None, ec=embed_cols_sym: create_embed_only_pipeline(
-                ec, n_jobs, use_selector=True
+                ec, n_jobs, use_selector=True, feature_names=feature_names
             ),
         },
         {
@@ -137,7 +137,8 @@ def main():
             print(f"  {abl['label']}  |  Pairing: {abl['pairing']}  |  Dataset: {ds['name'].upper()}")
             print("-" * 70)
 
-            output_dir = os.path.join("results", "ablation", ds["name"], abl["id"])
+            ds_out_name = f"{ds['name']}{suffix}"
+            output_dir = os.path.join("results", ds_out_name, "ablation", abl["id"])
             os.makedirs(output_dir, exist_ok=True)
 
             set_seed(args.seed)

@@ -77,7 +77,7 @@ _DATASET_CONFIG = {
 
 # Default order when --strategy all is requested.
 # 'random' first (fast, baseline); then the hard 'same_compartment' strategy.
-_ALL_STRATEGIES = ("random", "same_compartment")
+_ALL_STRATEGIES = ("random", "same_compartment", "same_go", "negatome")
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -264,7 +264,10 @@ def main() -> None:
         else:
             ann_cache = ""  # unused for random
 
-        negatome_file = ""
+        if strategy == "negatome":
+            negatome_file = str(PROJECT_ROOT / cfg["negatome"])
+        else:
+            negatome_file = ""
 
         combined_df = _run_strategy(
             strategy=strategy,

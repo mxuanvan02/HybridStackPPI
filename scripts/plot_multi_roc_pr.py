@@ -8,18 +8,23 @@ import numpy as np
 def parse_args():
     parser = argparse.ArgumentParser(description="Multi-method Plotting")
     parser.add_argument("--dataset", type=str, required=True, choices=["human", "yeast"])
+    parser.add_argument("--strategy", type=str, default="same_compartment", choices=["same_compartment", "same_go", "default"])
     return parser.parse_args()
 
 def main():
     args = parse_args()
     dataset = args.dataset
+    if args.strategy in ["same_compartment", "default"]:
+        suffix = ""
+    else:
+        suffix = f"_{args.strategy}"
     
     methods = {
-        "HybridStackPPI (Ours)": f"results/{dataset}/oof_predictions.csv",
-        "Vanilla ESM-2 + MLP": f"results/github_baselines/esm2_mlp_{dataset}/oof_predictions.csv",
-        "Conjoint Triad (CT)": f"results/baselines/{dataset}/conjoint_triad/oof_predictions.csv",
-        "Auto Covariance (AC)": f"results/baselines/{dataset}/auto_covariance/oof_predictions.csv",
-        "SPRINT": f"results/github_baselines/sprint_{dataset}/oof_predictions.csv",
+        "HybridStackPPI (Ours)": f"results/{dataset}{suffix}/oof_predictions.csv",
+        "Vanilla ESM-2 + MLP": f"results/github_baselines/esm2_mlp_{dataset}{suffix}/oof_predictions.csv",
+        "Conjoint Triad (CT)": f"results/baselines/{dataset}{suffix}/conjoint_triad/oof_predictions.csv",
+        "Auto Covariance (AC)": f"results/baselines/{dataset}{suffix}/auto_covariance/oof_predictions.csv",
+        "SPRINT": f"results/github_baselines/sprint_{dataset}{suffix}/oof_predictions.csv",
     }
     
     colors = {
@@ -68,7 +73,7 @@ def main():
     plt.title(f'Multi-method ROC Curve overlay ({dataset.capitalize()})', fontsize=16, fontweight='bold')
     plt.legend(loc="lower right", fontsize=12)
     
-    output_roc = f"results/multi_roc_{dataset}.png"
+    output_roc = f"results/multi_roc_{dataset}{suffix}.png"
     plt.tight_layout()
     plt.savefig(output_roc, dpi=300)
     print(f"✅ Saved ROC overlay to {output_roc}")
@@ -101,7 +106,7 @@ def main():
     plt.title(f'Multi-method PR Curve overlay ({dataset.capitalize()})', fontsize=16, fontweight='bold')
     plt.legend(loc="upper right", fontsize=12)
     
-    output_pr = f"results/multi_pr_{dataset}.png"
+    output_pr = f"results/multi_pr_{dataset}{suffix}.png"
     plt.tight_layout()
     plt.savefig(output_pr, dpi=300)
     print(f"✅ Saved PR overlay to {output_pr}")

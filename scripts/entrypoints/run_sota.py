@@ -39,6 +39,13 @@ from scripts.baselines.sota_esm2_mlp import run_esm2_mlp_baseline
 from scripts.baselines.sota_proteinprompt import run_proteinprompt_baseline
 from scripts.baselines.sota_raftppi import run_raftppi_baseline
 
+from hybridstack.metrics import (
+    plot_cv_roc_pr_curves,
+    plot_oof_confusion_matrix,
+    plot_f1_threshold_curve,
+    plot_cv_metric_distribution
+)
+
 # =====================================================================
 # REGISTRY
 # =====================================================================
@@ -67,11 +74,41 @@ BASELINE_REGISTRY = {
 }
 
 
+def plot_baseline_results(output_dir, logger):
+    """Generate standardized plots from baseline OOF predictions."""
+    oof_path = os.path.join(output_dir, "oof_predictions.csv")
+    metrics_path = os.path.join(output_dir, "fold_metrics.csv")
+    
+    if not os.path.exists(oof_path):
+        return
+    
+    plots_dir = os.path.join(output_dir, "plots")
+    os.makedirs(plots_dir, exist_ok=True)
+    
+    logger.info(f"Generating diagnostic plots in {plots_dir}...")
+    
+    oof_df = pd.read_csv(oof_path)
+    
+    # ROC/PR Curves
+    plot_cv_roc_pr_curves(oof_df, plots_dir)
+    
+    # Threshold curve
+    plot_f1_threshold_curve(oof_df, plots_dir)
+    
+    # Confusion Matrix (at 0.5 default)
+    plot_oof_confusion_matrix(oof_df, plots_dir, threshold=0.5)
+    
+    # Metric distribution if fold metrics exist
+    if os.path.exists(metrics_path):
+        metrics_df = pd.read_csv(metrics_path)
+        plot_cv_metric_distribution(metrics_df, plots_dir)
+
 # =====================================================================
 # MAIN ROUTINE
 # =====================================================================
 
 def main():
+    print("DEBUG: Entering main()", flush=True)
     parser = argparse.ArgumentParser(description="External SOTA Baselines for HybridStackPPI")
     parser.add_argument("--methods", nargs='+', choices=["sprint", "dscript", "esm2_mlp", "proteinprompt", "raftppi", "all"],
                         default=["all"], help="Which SOTA methods to run")
@@ -80,6 +117,7 @@ def main():
     parser.add_argument("--strategy", choices=["default", "same_compartment", "same_go"], default="same_compartment",
                         help="Negative sampling strategy to use for pairs")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--plots-only", action="store_true", help="Only generate plots from existing results")
     args = parser.parse_args()
 
     set_seed(args.seed)
@@ -117,7 +155,7 @@ def main():
     logger.info(f"Strategy: {args.strategy}\n")
 
     for ds in datasets_cfg:
-        logger.header(f"DATASET — {ds['name'].upper()}")
+        logger.header(f"DATASET {ds['name'].upper()}")
         
         # Load datasets
         try:
@@ -140,24 +178,31 @@ def main():
             output_dir = os.path.join(PROJECT_ROOT, "results", "github_baselines", f"{method}_{ds['name']}{output_suffix}")
             os.makedirs(output_dir, exist_ok=True)
 
-            t0 = time.time()
-            try:
-                runner_kwargs = {
-                    "dataset_name": ds["name"],
-                    "sequences": sequences,
-                    "pairs_df": pairs_df,
-                    "n_splits": args.n_splits,
-                    "output_dir": output_dir,
-                    "logger": logger,
-                }
-                if method == "esm2_mlp":
-                    runner_kwargs["epochs"] = 40
-                result = runner_fn(**runner_kwargs)
-            except Exception as e:
-                print(f"Error during {method} execution: {e}")
+            if not args.plots_only:
+                t0 = time.time()
+                try:
+                    runner_kwargs = {
+                        "dataset_name": ds["name"],
+                        "sequences": sequences,
+                        "pairs_df": pairs_df,
+                        "n_splits": args.n_splits,
+                        "output_dir": output_dir,
+                        "logger": logger,
+                    }
+                    if method == "esm2_mlp":
+                        runner_kwargs["epochs"] = 40
+                    result = runner_fn(**runner_kwargs)
+                except Exception as e:
+                    print(f"Error during {method} execution: {e}")
+                
+                elapsed = time.time() - t0
+                logger.info(f"  [{method.upper()}] Finished in {elapsed:.2f} seconds.")
             
-            elapsed = time.time() - t0
-            logger.info(f"  [{method.upper()}] Finished in {elapsed:.2f} seconds.")
+            # Post-execution Plotting
+            try:
+                plot_baseline_results(output_dir, logger)
+            except Exception as e:
+                logger.warning(f"Failed to generate plots for {method}: {e}")
 
     print("\n" + "=" * 70)
     print("All configured baselines have finished execution.")

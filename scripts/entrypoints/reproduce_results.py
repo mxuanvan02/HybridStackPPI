@@ -109,7 +109,7 @@ def main():
     )
     parser.add_argument(
         "--strategy",
-        choices=["default", "random", "same_compartment", "diff_compartment", "same_go"],
+        choices=["default", "random", "same_compartment", "diff_compartment", "same_go", "negatome"],
         default="same_compartment",
         help="Negative sampling strategy to evaluate (default: same_compartment hard negatives)"
     )
@@ -137,6 +137,7 @@ def main():
         "same_compartment": "_same_compartment",
         "diff_compartment": "_diff_compartment",
         "same_go": "_same_go",
+        "negatome": "_negatome_balanced",
     }
     
     # Set random seed FIRST for reproducibility
@@ -218,15 +219,27 @@ def main():
             print(f"ERROR: Pairs file not found: {ds['pairs']}")
             continue
         
+        # [Optimization] Define columns once to avoid redundant FeatureEngine init in folds
+        from scripts.run import define_stacking_columns, create_stacking_pipeline
+        from hybridstack.feature_engine import FeatureEngine, EmbeddingComputer
+        
+        print("  Initializing feature names for pipeline...")
+        embedding_computer = EmbeddingComputer(model_name=args.esm_model)
+        feature_engine = FeatureEngine(h5_cache_path=args.h5_cache, embedding_computer=embedding_computer)
+        interp_cols, embed_cols = define_stacking_columns(feature_engine, pairing_strategy=args.pairing)
+        
         # Create model factory
         def model_factory(n_jobs=-1, feature_names=None):
-            return create_stacking_pipeline_for_notebook(
-                pairing_strategy=args.pairing,
+            # Reduced cv_n_jobs from -1 to 1 to avoid OOM spikes on base-learner forks.
+            # parallelism is handled by LightGBM internal threads.
+            return create_stacking_pipeline(
+                interp_cols=interp_cols,
+                embed_cols=embed_cols,
                 n_jobs=n_jobs,
-                h5_cache_path=args.h5_cache,
-                esm_model_name=args.esm_model,
-                cv_n_jobs=-1, # [OOM-FIX] Enabled FULL parallel processing (12-core) via memmap!
-                feature_names=feature_names
+                use_selector=True,
+                cv_n_jobs=1,
+                feature_names=feature_names,
+                meta_learner_type="lr"
             )
         
         # Run experiment

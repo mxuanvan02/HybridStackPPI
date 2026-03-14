@@ -5,7 +5,12 @@
 !*/
 !hybridstack/**
 !scripts/**
-!data/**
+!data/BioGrid/
+!data/BioGrid/Human/
+!data/BioGrid/Yeast/
+!data/annotations/
+!data/negatome/
+!data/elm_motifs_freeze.tsv
 !models/**
 !notebooks/**
 !utils/**
@@ -16,6 +21,10 @@
 !.gitignore
 !LICENSE
 !reproduce_results.py
+!reviewer2_deep_analysis.md
+!HybridStackPPI_Final_Report.md
+!figures/**
+!archive/**
 
 # --- 4. EXPLICITLY IGNORE JUNK INSIDE ALLOWED FOLDERS ---
 # Even inside allowed folders, we don't want these:
@@ -43,16 +52,18 @@ venv/
 *.joblib
 
 # --- 6. IGNORE EXTERNAL/GENERATED CONTENT ---
+external/
 external_tools/
 external_tools_backup_*/
-cache/
+# Allow specific paths in cache and results
+!cache/
+!results/
+
 logs/
-results/
 reports/
 benchmarks/
 *.lock
 .agent
-figures/
 tmp*
 nohup.out
 *_pid.txt
@@ -60,21 +71,27 @@ LOG_*.txt
 *.pdf
 *.png
 
-# --- 7. IGNORE OPTIONAL EXTERNAL MODEL REPOS (not part of core HybridStackPPI) ---
-D-SCRIPT/
-Topsy-Turvy/
-RaftPPI/
-SPRINT/
-proteinPrompt/
-LPBERT/
-deeptrio/
-rapppid/
-seq_ppi/
-xCAPT5/
-baseline_scripts/
-run_baselines.sh
+# --- 7. WHITELIST CORE ASSETS FOR REPLICATION ---
+# Ignore all by default in these folders
+cache/*
+results/*
 
-# --- 8. IGNORE NON-CORE/DERIVED DATASETS ---
+# Re-include mapping and dictionary files (Exclude .h5 from GitHub as they exceed 2GB)
+!cache/*_cluster_map.csv
+!cache/human_dict_cdhit_40*
+!cache/yeast_dict_cdhit_40*
+
+# Re-include trained models for Same-GO
+!results/human_same_go/
+!results/human_same_go/*
+!results/human_same_go/models/
+!results/human_same_go/models/*.joblib
+!results/yeast_same_go/
+!results/yeast_same_go/*
+!results/yeast_same_go/models/
+!results/yeast_same_go/models/*.joblib
+
+# --- 7. IGNORE NON-CORE/DERIVED DATASETS ---
 data/BioGrid/Human/CDHIT_Reduced/
 data/BioGrid/Yeast/CDHIT_Reduced/
 data/LPBERT/
@@ -82,3 +99,18 @@ data/deeptrio/
 data/seq_ppi/
 data/xCAPT5/
 data/rapppid/
+data/pids/
+
+HybridStackPPI_Final_Report.md
+archive/
+figures/
+reviewer2_deep_analysis.md
+IEEE_Access/
+BioGrid/Human/human_pairs_diff_compartment.tsv
+BioGrid/Yeast/yeast_pairs_diff_compartment.tsv
+BioGrid/Human/human_pairs_random.tsv
+BioGrid/Yeast/yeast_pairs_random.tsv
+BioGrid/Human/human_pairs_same_compartment.tsv
+BioGrid/Yeast/yeast_pairs_same_compartment.tsv
+BioGrid/Human/human_pairs.tsv
+BioGrid/Yeast/yeast_pairs.tsv

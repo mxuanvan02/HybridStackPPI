@@ -16,6 +16,7 @@ def run_sprint_baseline(dataset_name, sequences, pairs_df, n_splits, output_dir,
     """
     sprint_dir = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "external",
         "SPRINT",
     )
     sprint_bin_compute = os.path.join(sprint_dir, "bin", "compute_HSPs")
@@ -190,4 +191,4 @@ def run_sprint_baseline(dataset_name, sequences, pairs_df, n_splits, output_dir,
     means = fold_df.mean()
     stds = fold_df.std()
     
-    return {"means": means.to_dict(), "stds": stds.to_dict(), "oof": zoof_m}
+    return {"means": means.to_dict(), "stds": stds.to_dict(), "oof": oof_m}
