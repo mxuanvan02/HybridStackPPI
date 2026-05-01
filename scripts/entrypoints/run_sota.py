@@ -89,19 +89,49 @@ def plot_baseline_results(output_dir, logger):
     
     oof_df = pd.read_csv(oof_path)
     
+    # 1. Convert OOF DF to list of fold dicts for plot_cv_roc_pr_curves
+    cv_results = []
+    for f_id in sorted(oof_df["fold_id"].unique()):
+        f_df = oof_df[oof_df["fold_id"] == f_id]
+        cv_results.append({
+            "y_true": f_df["y_true"].values,
+            "y_proba": f_df["y_proba"].values
+        })
+    
     # ROC/PR Curves
-    plot_cv_roc_pr_curves(oof_df, plots_dir)
+    try:
+        plot_cv_roc_pr_curves(cv_results, plots_dir)
+    except Exception as e:
+        logger.warning(f"  ROC/PR Plot error: {e}")
     
-    # Threshold curve
-    plot_f1_threshold_curve(oof_df, plots_dir)
+    # 2. Threshold curve (F1 vs T)
+    try:
+        from sklearn.metrics import precision_recall_curve
+        y_true = oof_df["y_true"].values
+        y_proba = oof_df["y_proba"].values
+        precs, recs, threshs = precision_recall_curve(y_true, y_proba)
+        f1s = 2 * (precs[:-1] * recs[:-1]) / (precs[:-1] + recs[:-1] + 1e-8)
+        opt_idx = np.argmax(f1s)
+        plot_f1_threshold_curve(threshs, f1s, opt_idx, plots_dir)
+    except Exception as e:
+        logger.warning(f"  F1 Threshold Plot error: {e}")
     
-    # Confusion Matrix (at 0.5 default)
-    plot_oof_confusion_matrix(oof_df, plots_dir, threshold=0.5)
+    # 3. Confusion Matrix (at 0.5 default)
+    try:
+        y_pred = (oof_df["y_proba"] >= 0.5).astype(int)
+        plot_oof_confusion_matrix(oof_df["y_true"].values, y_pred, plots_dir, threshold_label=0.5)
+    except Exception as e:
+        logger.warning(f"  CM Plot error: {e}")
     
-    # Metric distribution if fold metrics exist
+    # 4. Metric distribution boxplot
     if os.path.exists(metrics_path):
-        metrics_df = pd.read_csv(metrics_path)
-        plot_cv_metric_distribution(metrics_df, plots_dir)
+        try:
+            metrics_df = pd.read_csv(metrics_path)
+            # plot_cv_metric_distribution expects a list of dicts
+            metrics_list = metrics_df.to_dict(orient="records")
+            plot_cv_metric_distribution(metrics_list, plots_dir)
+        except Exception as e:
+            logger.warning(f"  Metric Distribution Plot error: {e}")
 
 # =====================================================================
 # MAIN ROUTINE

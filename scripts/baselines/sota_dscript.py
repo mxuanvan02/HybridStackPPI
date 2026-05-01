@@ -69,7 +69,8 @@ def run_dscript_baseline(dataset_name, sequences, pairs_df, n_splits, output_dir
             "--embeddings", emb_path,
             "--model", "samsl/topsy_turvy_human_v1",
             "--outfile", out_pred_path,
-            "-d", "cpu"
+            "-d", "cpu",
+            "--load_proc", "1"
         ]
         
         res = subprocess.run(cmd, capture_output=True, text=True)

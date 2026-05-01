@@ -63,7 +63,9 @@ def _ensure_docker_ready(image: str):
 def _write_fasta(path: Path, seq_map: dict):
     with path.open("w", encoding="utf-8") as f:
         for pid, seq in seq_map.items():
-            f.write(f">{pid}\n{seq}\n")
+            # Bio-compatibility: ProteinPrompt (AC210) does not support 'U' (Selenocysteine)
+            fixed_seq = seq.replace('U', 'C')
+            f.write(f">{pid}\n{fixed_seq}\n")
 
 
 def _write_pairs(path: Path, pairs_df: pd.DataFrame):
@@ -75,24 +77,23 @@ def _run_proteinprompt_cli(project_root: Path, image: str, fasta_abs: Path, pair
     fasta_in = f"/work/{fasta_abs.relative_to(project_root)}"
     pairs_in = f"/work/{pairs_abs.relative_to(project_root)}"
     out_dir_in = f"/work/{out_dir_abs.relative_to(project_root)}"
+    
+    # We use a patched script to fix sklearn versioning issues
+    patch_abs = project_root / "scripts" / "ProteinPrompt_patched.py"
+    
     cmd = [
         "docker",
         "run",
         "--rm",
-        "-v",
-        f"{project_root}:/work",
-        "-w",
-        "/work",
+        "-v", f"{project_root}:/work",
+        "-v", f"{patch_abs}:/proteinPrompt/ProteinPrompt.py:ro",
+        "-w", "/work",
         image,
         "predict",
-        "-f",
-        fasta_in,
-        "-p",
-        pairs_in,
-        "-d",
-        out_dir_in,
-        "-o",
-        out_name,
+        "-f", fasta_in,
+        "-p", pairs_in,
+        "-d", out_dir_in,
+        "-o", out_name,
     ]
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0:
