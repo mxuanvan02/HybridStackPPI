@@ -1,0 +1,29 @@
+# Citation File Format (CFF) - https://citation-file-format.github.io/
+cff-version: 1.2.0
+type: software
+title: "HybridStack-PPI: A Hybrid Stacking Ensemble for Protein-Protein Interaction Prediction"
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: "Your"
+    given-names: "Name"
+    orcid: "https://orcid.org/0000-0000-0000-0000"
+    affiliation: "Your Institution"
+repository-code: "https://github.com/your-username/HybridStackPPI"
+url: "https://github.com/your-username/HybridStackPPI"
+license: MIT
+version: "1.0.0"
+date-released: "2024-12-27"
+keywords:
+  - protein-protein interaction
+  - machine learning
+  - stacking ensemble
+  - ESM-2
+  - bioinformatics
+  - deep learning
+abstract: >-
+  HybridStack-PPI is a machine learning framework for predicting 
+  protein-protein interactions using a hybrid stacking architecture 
+  that combines interpretable biological features with ESM-2 protein 
+  language model embeddings. The framework implements rigorous 
+  cluster-based cross-validation (C3) using CD-HIT to prevent data 
+  leakage from homologous sequences.
