@@ -114,3 +114,11 @@ BioGrid/Human/human_pairs_same_compartment.tsv
 BioGrid/Yeast/yeast_pairs_same_compartment.tsv
 BioGrid/Human/human_pairs.tsv
 BioGrid/Yeast/yeast_pairs.tsv
+# --- 8. TEMPORARY/UTILITY SCRIPTS (Ignore) ---
+fast_extract_5.py
+prepare_yeast_clean.py
+run_cross_species.sh
+fix_h5.py
+sync_cache.py
+prepare_yeast_clean.py
+
