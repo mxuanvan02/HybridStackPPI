@@ -33,8 +33,8 @@ from scripts.config import (
     validate_cache_files,
 )
 
-from src.data_utils import load_feature_matrix_h5
-from src.builders import (
+from hybridstack.data_utils import load_feature_matrix_h5
+from hybridstack.builders import (
     create_stacking_pipeline,
     create_interp_only_stacking_pipeline,
     create_embed_only_stacking_pipeline,
@@ -43,9 +43,9 @@ from src.builders import (
     create_esm_global_lr_pipeline,
     define_stacking_columns,
 )
-from src.feature_engine import EmbeddingComputer, FeatureEngine
-from src.metrics import display_full_metrics, generate_latex_table
-from src.logger import PipelineLogger
+from hybridstack.feature_engine import EmbeddingComputer, FeatureEngine
+from hybridstack.metrics import display_full_metrics, generate_latex_table
+from hybridstack.logger import PipelineLogger
 from scripts.run_cv import parse_clstr_to_mapping, get_c3_splits, verify_split_integrity
 
 
