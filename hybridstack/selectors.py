@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from lightgbm import LGBMClassifier
-from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.base import BaseEstimator, TransformerMixin, clone
 from sklearn.feature_selection import VarianceThreshold
 
 
@@ -131,7 +131,7 @@ class CumulativeFeatureSelector(BaseEstimator, TransformerMixin):
             if self.importance_estimator is not None:
                 self.estimator_ = clone(self.importance_estimator)
             else:
-                self.estimator_ = LGBMClassifier(n_jobs=-1, random_state=42, verbose=-1)
+                self.estimator_ = LGBMClassifier(n_jobs=1, random_state=42, verbose=-1)
             
             self.estimator_.fit(X_stage1, y)
             importances = pd.Series(self.estimator_.feature_importances_, index=X_stage1.columns)
