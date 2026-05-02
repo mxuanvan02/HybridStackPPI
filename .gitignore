@@ -122,3 +122,11 @@ fix_h5.py
 sync_cache.py
 prepare_yeast_clean.py
 
+
+# --- 9. DEVELOPER ARCHIVE & DEPRECATED (Local only) ---
+archive/
+scripts/deprecated/
+scripts/utils/
+temp/
+*.log
+
