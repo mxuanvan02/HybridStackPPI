@@ -9,7 +9,7 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.metrics import plot_cv_roc_pr_curves
+from hybridstack.metrics import plot_cv_roc_pr_curves
 
 def regrow_plots(results_dir, dataset_name):
     print(f"\n🎨 Regenerating plots for {dataset_name} in {results_dir}...")

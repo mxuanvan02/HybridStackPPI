@@ -33,9 +33,9 @@ from sklearn.model_selection import KFold
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.builders import create_stacking_pipeline, define_stacking_columns
-from src.data_utils import load_feature_matrix_h5
-from src.feature_engine import EmbeddingComputer, FeatureEngine
+from hybridstack.builders import create_stacking_pipeline, define_stacking_columns
+from hybridstack.data_utils import load_feature_matrix_h5
+from hybridstack.feature_engine import EmbeddingComputer, FeatureEngine
 
 
 def parse_clstr_to_mapping(clstr_path: str) -> dict[str, int]:

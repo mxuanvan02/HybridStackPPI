@@ -61,7 +61,7 @@ def print_header(section: str):
 # =============================================================================
 def test_canonicalization():
     """Test 1.1: Verify canonicalize_pairs merges duplicates correctly."""
-    from src.data_utils import canonicalize_pairs
+    from hybridstack.data_utils import canonicalize_pairs
     
     # Create test data with reversed pair duplicates
     test_df = pd.DataFrame({
@@ -150,7 +150,7 @@ def test_cluster_integrity():
 # =============================================================================
 def test_bad_input_handling():
     """Test 2.1: Verify graceful handling of invalid amino acid characters."""
-    from src.feature_engine import AACExtractor, DPCExtractor
+    from hybridstack.feature_engine import AACExtractor, DPCExtractor
     
     aac = AACExtractor()
     dpc = DPCExtractor()
@@ -174,7 +174,7 @@ def test_bad_input_handling():
 
 def test_dimension_check():
     """Test 2.2: Verify feature extractors produce correct dimensions."""
-    from src.feature_engine import (
+    from hybridstack.feature_engine import (
         AACExtractor, DPCExtractor, CTDExtractor, 
         PAACExtractor, MoranAutocorrelation
     )
@@ -214,7 +214,7 @@ def test_dimension_check():
 # =============================================================================
 def test_selector_collapse():
     """Test 3.1: Verify CumulativeFeatureSelector handles zero-variance data."""
-    from src.selectors import CumulativeFeatureSelector
+    from hybridstack.selectors import CumulativeFeatureSelector
     
     # Create all-constant data (zero variance)
     X = pd.DataFrame({
@@ -253,7 +253,7 @@ def test_selector_collapse():
 
 def test_internal_cv_config():
     """Test 3.2: Verify StackingClassifier uses cv=5, not default cv=3."""
-    from src.builders import create_stacking_pipeline
+    from hybridstack.builders import create_stacking_pipeline
     
     # Create minimal column lists
     interp_cols = [f'interp_{i}' for i in range(10)]
@@ -281,7 +281,7 @@ def test_internal_cv_config():
 # =============================================================================
 def test_failsafe_trigger():
     """Test 4.1: Verify fail-safe raises error on missing cluster file."""
-    from src.data_utils import load_cluster_map
+    from hybridstack.data_utils import load_cluster_map
     
     fake_cluster_path = "/tmp/nonexistent_cluster_file_12345.csv"
     
